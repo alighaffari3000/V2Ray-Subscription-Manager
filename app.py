@@ -176,16 +176,18 @@ def parse_configs(text):
 def get_all_configs():
     """دریافت تمام کانفیگ‌های فعال و فعال‌سازی شده برای سابسکریپشن"""
     db = get_db()
+    sort_dir = get_setting('config_sort_order', 'asc').lower()
+    order_sql = 'DESC' if sort_dir == 'desc' else 'ASC'
     try:
         configs = db.execute(
-            'SELECT * FROM configs WHERE status = "active" AND is_enabled = 1 ORDER BY sort_order ASC, created_at ASC'
+            f'SELECT * FROM configs WHERE status = "active" AND is_enabled = 1 ORDER BY sort_order {order_sql}, created_at {order_sql}'
         ).fetchall()
     except Exception as e:
         print(f"Error in get_all_configs: {e}")
         # Fallback if is_enabled or sort_order does not exist
         try:
             configs = db.execute(
-                'SELECT * FROM configs WHERE status = "active" ORDER BY created_at ASC'
+                f'SELECT * FROM configs WHERE status = "active" ORDER BY created_at {order_sql}'
             ).fetchall()
         except:
             configs = []
@@ -375,6 +377,7 @@ def generate_subscription_content():
         return encoded_content
     else:
         return content
+
 # روت اصلی - ریدایرکت به پنل
 @app.route('/')
 def index():
@@ -414,8 +417,10 @@ def admin_panel():
         return redirect(url_for('login'))
     
     db = get_db()
+    sort_dir = get_setting('config_sort_order', 'asc').lower()
+    order_sql = 'DESC' if sort_dir == 'desc' else 'ASC'
     configs_rows = db.execute(
-        'SELECT * FROM configs WHERE status = "active" ORDER BY sort_order ASC, created_at ASC'
+        f'SELECT * FROM configs WHERE status = "active" ORDER BY sort_order {order_sql}, created_at {order_sql}'
     ).fetchall()
     
     # دریافت مسیرهای سابسکریپشن
@@ -612,6 +617,21 @@ def set_format():
     set_setting('output_format', output_format)
     
     return jsonify({'success': True, 'message': 'فرمت با موفقیت تغییر کرد'})
+
+# تغییر ترتیب نمایش و شماره‌گذاری کانفیگ‌ها
+@app.route('/adminpanel/set_sort_order', methods=['POST'])
+def set_sort_order():
+    if not session.get('logged_in'):
+        return jsonify({'success': False, 'message': 'غیرمجاز'}), 401
+    
+    sort_order = request.form.get('sort_order', 'asc').lower()
+    
+    if sort_order not in ['asc', 'desc']:
+        return jsonify({'success': False, 'message': 'ترتیب نامعتبر'})
+    
+    set_setting('config_sort_order', sort_order)
+    
+    return jsonify({'success': True, 'message': 'ترتیب نمایش و شماره‌گذاری با موفقیت تغییر کرد'})
 
 # لینک سابسکریپشن عمومی پویا
 @app.route('/sub/<path:sub_path>')
