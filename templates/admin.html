@@ -553,16 +553,35 @@
             grid-template-columns: 1fr;
             gap: 20px;
         }
+        .settings-grid > div {
+            min-width: 0;
+        }
         @media (min-width: 768px) {
             .settings-grid {
                 grid-template-columns: 2fr 3fr;
             }
         }
         
+        #sub-link {
+            word-break: break-all;
+            white-space: normal;
+            display: inline-block;
+            max-width: 100%;
+        }
+        
         .path-input-group {
             display: flex;
             gap: 10px;
             margin-top: 10px;
+        }
+        @media (max-width: 576px) {
+            .path-input-group {
+                flex-direction: column;
+            }
+            .path-input-group button, .path-input-group input {
+                width: 100%;
+                box-sizing: border-box;
+            }
         }
         
         .path-input-group input {
