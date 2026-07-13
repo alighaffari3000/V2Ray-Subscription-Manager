@@ -957,6 +957,123 @@ def get_stats():
         'paths_disabled': paths_disabled,
         'client_stats': client_counts
     })
+
+# دریافت داده‌های نمودارها
+@app.route('/adminpanel/chart_data')
+def get_chart_data():
+    if not session.get('logged_in'):
+        return jsonify({'success': False, 'message': 'غیرمجاز'}), 401
+    
+    daily_range = request.args.get('daily_range', '30d')
+    client_range = request.args.get('client_range', '30d')
+    
+    db = get_db()
+    
+    # 1. آمار ساعتی امروز (Hourly Today)
+    hourly_data = {f"{h:02d}": 0 for h in range(24)}
+    hourly_rows = db.execute('''
+        SELECT strftime('%H', accessed_at) as hour, COUNT(*) as count 
+        FROM subscription_logs 
+        WHERE status = 'SUCCESS' AND date(accessed_at) = date('now')
+        GROUP BY hour
+    ''').fetchall()
+    
+    for row in hourly_rows:
+        h = row['hour']
+        if h in hourly_data:
+            hourly_data[h] = row['count']
+            
+    hourly_result = {
+        'labels': list(hourly_data.keys()),
+        'data': list(hourly_data.values())
+    }
+    
+    # ۲. آمار روزانه (Daily Download Trend)
+    days_map = {'7d': 7, '30d': 30, '90d': 90}
+    daily_days = days_map.get(daily_range, 30)
+    
+    start_date = datetime.today().date() - timedelta(days=daily_days - 1)
+    daily_data = { (start_date + timedelta(days=i)).strftime('%Y-%m-%d'): 0 for i in range(daily_days) }
+    
+    daily_rows = db.execute('''
+        SELECT date(accessed_at) as log_date, COUNT(*) as count 
+        FROM subscription_logs 
+        WHERE status = 'SUCCESS' AND accessed_at >= date('now', ?)
+        GROUP BY log_date
+    ''', (f'-{daily_days - 1} days',)).fetchall()
+    
+    for row in daily_rows:
+        d = row['log_date']
+        if d in daily_data:
+            daily_data[d] = row['count']
+            
+    daily_result = {
+        'labels': list(daily_data.keys()),
+        'downloads': list(daily_data.values())
+    }
+    
+    # ۳. نمودار توزیع برنامه‌های کلاینت (Client App Distribution Trend)
+    client_days = days_map.get(client_range, 30)
+    client_start_date = datetime.today().date() - timedelta(days=client_days - 1)
+    
+    apps = ['v2rayNG', 'Nekobox', 'Clash', 'Shadowrocket', 'Sing-box', 'Other']
+    client_data = {
+        app: { (client_start_date + timedelta(days=i)).strftime('%Y-%m-%d'): 0 for i in range(client_days) }
+        for app in apps
+    }
+    
+    client_labels = [ (client_start_date + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(client_days) ]
+    
+    client_rows = db.execute('''
+        SELECT 
+            date(accessed_at) as log_date,
+            SUM(CASE WHEN user_agent LIKE '%v2rayNG%' THEN 1 ELSE 0 END) as v2rayng,
+            SUM(CASE WHEN user_agent LIKE '%Nekobox%' OR user_agent LIKE '%NekoBox%' THEN 1 ELSE 0 END) as nekobox,
+            SUM(CASE WHEN user_agent LIKE '%Clash%' THEN 1 ELSE 0 END) as clash,
+            SUM(CASE WHEN user_agent LIKE '%Shadowrocket%' THEN 1 ELSE 0 END) as shadowrocket,
+            SUM(CASE WHEN user_agent LIKE '%sing-box%' OR user_agent LIKE '%Sing-box%' THEN 1 ELSE 0 END) as singbox,
+            SUM(CASE WHEN NOT (
+                user_agent LIKE '%v2rayNG%' OR 
+                user_agent LIKE '%Nekobox%' OR 
+                user_agent LIKE '%NekoBox%' OR 
+                user_agent LIKE '%Clash%' OR 
+                user_agent LIKE '%Shadowrocket%' OR 
+                user_agent LIKE '%sing-box%' OR 
+                user_agent LIKE '%Sing-box%'
+            ) THEN 1 ELSE 0 END) as other
+        FROM subscription_logs
+        WHERE status = 'SUCCESS' AND accessed_at >= date('now', ?)
+        GROUP BY log_date
+    ''', (f'-{client_days - 1} days',)).fetchall()
+    
+    for row in client_rows:
+        d = row['log_date']
+        if d in client_labels:
+            client_data['v2rayNG'][d] = row['v2rayng']
+            client_data['Nekobox'][d] = row['nekobox']
+            client_data['Clash'][d] = row['clash']
+            client_data['Shadowrocket'][d] = row['shadowrocket']
+            client_data['Sing-box'][d] = row['singbox']
+            client_data['Other'][d] = row['other']
+            
+    client_result = {
+        'labels': client_labels,
+        'v2rayNG': [client_data['v2rayNG'][l] for l in client_labels],
+        'Nekobox': [client_data['Nekobox'][l] for l in client_labels],
+        'Clash': [client_data['Clash'][l] for l in client_labels],
+        'Shadowrocket': [client_data['Shadowrocket'][l] for l in client_labels],
+        'Sing-box': [client_data['Sing-box'][l] for l in client_labels],
+        'Other': [client_data['Other'][l] for l in client_labels]
+    }
+    
+    db.close()
+    
+    return jsonify({
+        'hourly': hourly_result,
+        'daily': daily_result,
+        'clients': client_result
+    })
+
 # API آمار بازدید
 @app.route('/adminpanel/usage_stats')
 def get_usage_stats():

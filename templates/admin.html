@@ -695,6 +695,48 @@
                     <div class="number" id="today-total">-</div>
                 </div>
             </div>
+        </div>
+
+        <!-- بخش نمودارها (Charts & Trends) -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; margin-bottom: 30px;">
+            <!-- نمودار خطی روند دانلود ساعتی امروز -->
+            <div class="card" style="margin-bottom: 0;">
+                <h2 class="card-title">🕒 روند دانلود ساعتی (امروز)</h2>
+                <div style="position: relative; height: 300px; width: 100%;">
+                    <canvas id="hourlyChart"></canvas>
+                </div>
+            </div>
+
+            <!-- نمودار خطی روند دانلود روزانه -->
+            <div class="card" style="margin-bottom: 0;">
+                <h2 class="card-title" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                    <span>📅 روند دانلود روزانه</span>
+                    <select id="daily-range-select" class="btn btn-secondary" style="padding: 5px 10px; font-size: 13px; font-weight: normal; border: 1px solid var(--border-color); background: var(--bg-color); color: var(--text-color);" onchange="updateDailyChart()">
+                        <option value="7d">هفتگی</option>
+                        <option value="30d" selected>30 روز گذشته</option>
+                        <option value="90d">90 روز گذشته</option>
+                    </select>
+                </h2>
+                <div style="position: relative; height: 300px; width: 100%;">
+                    <canvas id="dailyChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" style="margin-bottom: 30px;">
+            <h2 class="card-title" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                <span>📱 روند سهم نرم‌افزارهای کاربران (Client App Distribution)</span>
+                <select id="client-range-select" class="btn btn-secondary" style="padding: 5px 10px; font-size: 13px; font-weight: normal; border: 1px solid var(--border-color); background: var(--bg-color); color: var(--text-color);" onchange="updateClientChart()">
+                    <option value="7d">هفتگی</option>
+                    <option value="30d" selected>30 روز گذشته</option>
+                    <option value="90d">90 روز گذشته</option>
+                </select>
+            </h2>
+            <div style="position: relative; height: 350px; width: 100%;">
+                <canvas id="clientChart"></canvas>
+            </div>
+        </div>
+
         <!-- آمارهای تکمیلی -->
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 30px;">
             <!-- آمار دیتابیس و سیستم -->
@@ -979,6 +1021,7 @@ hysteria2://..." required></textarea>
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
         // Dark Mode Logic
         function initDarkMode() {
@@ -994,6 +1037,7 @@ hysteria2://..." required></textarea>
             const isDarkMode = document.body.classList.contains('dark-mode');
             localStorage.setItem('darkMode', isDarkMode);
             document.getElementById('dark-mode-icon').textContent = isDarkMode ? '☀️' : '🌙';
+            updateChartsTheme();
         }
 
         // Logs Logic
@@ -1690,10 +1734,256 @@ hysteria2://..." required></textarea>
                 });
         }
 
+        // --- نمودارها ---
+        let hourlyChart = null;
+        let dailyChart = null;
+        let clientChart = null;
+
+        function getChartColors() {
+            const isDark = document.body.classList.contains('dark-mode');
+            return {
+                text: isDark ? '#b3b3b3' : '#666666',
+                grid: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
+                border: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.1)'
+            };
+        }
+
+        function updateChartsTheme() {
+            const colors = getChartColors();
+            [hourlyChart, dailyChart, clientChart].forEach(chart => {
+                if (chart) {
+                    chart.options.scales.x.grid.color = colors.grid;
+                    chart.options.scales.y.grid.color = colors.grid;
+                    chart.options.scales.x.ticks.color = colors.text;
+                    chart.options.scales.y.ticks.color = colors.text;
+                    if (chart.options.plugins.legend && chart.options.plugins.legend.labels) {
+                        chart.options.plugins.legend.labels.color = colors.text;
+                    }
+                    chart.update();
+                }
+            });
+        }
+
+        function loadCharts() {
+            const colors = getChartColors();
+            
+            // 1. Hourly Chart
+            const ctxHourly = document.getElementById('hourlyChart').getContext('2d');
+            hourlyChart = new Chart(ctxHourly, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'دانلود در ساعت',
+                        data: [],
+                        borderColor: '#667eea',
+                        backgroundColor: 'rgba(102, 126, 234, 0.15)',
+                        borderWidth: 2,
+                        tension: 0.3,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: colors.grid },
+                            ticks: { color: colors.text }
+                        },
+                        y: {
+                            grid: { color: colors.grid },
+                            ticks: { color: colors.text, stepSize: 1 },
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+
+            // 2. Daily Chart
+            const ctxDaily = document.getElementById('dailyChart').getContext('2d');
+            dailyChart = new Chart(ctxDaily, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'دانلود روزانه',
+                        data: [],
+                        borderColor: '#2ecc71',
+                        backgroundColor: 'rgba(46, 204, 113, 0.15)',
+                        borderWidth: 2,
+                        tension: 0.3,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: colors.grid },
+                            ticks: { color: colors.text }
+                        },
+                        y: {
+                            grid: { color: colors.grid },
+                            ticks: { color: colors.text, stepSize: 1 },
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+
+            // 3. Client Chart (Stacked Area)
+            const ctxClient = document.getElementById('clientChart').getContext('2d');
+            clientChart = new Chart(ctxClient, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: []
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: { color: colors.text }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: colors.grid },
+                            ticks: { color: colors.text }
+                        },
+                        y: {
+                            stacked: true,
+                            grid: { color: colors.grid },
+                            ticks: { color: colors.text, stepSize: 1 },
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+
+            fetchChartData();
+        }
+
+        function fetchChartData() {
+            const dailyRange = document.getElementById('daily-range-select').value;
+            const clientRange = document.getElementById('client-range-select').value;
+
+            fetch(`/adminpanel/chart_data?daily_range=${dailyRange}&client_range=${clientRange}`)
+                .then(response => response.json())
+                .then(data => {
+                    hourlyChart.data.labels = data.hourly.labels;
+                    hourlyChart.data.datasets[0].data = data.hourly.data;
+                    hourlyChart.update();
+
+                    dailyChart.data.labels = data.daily.labels;
+                    dailyChart.data.datasets[0].data = data.daily.downloads;
+                    dailyChart.update();
+
+                    const apps = ['v2rayNG', 'Nekobox', 'Clash', 'Shadowrocket', 'Sing-box', 'Other'];
+                    const datasets = [];
+                    const clientColors = {
+                        'v2rayNG': 'rgba(102, 126, 234, 0.4)',
+                        'Nekobox': 'rgba(46, 204, 113, 0.4)',
+                        'Clash': 'rgba(241, 196, 15, 0.4)',
+                        'Shadowrocket': 'rgba(155, 89, 182, 0.4)',
+                        'Sing-box': 'rgba(230, 126, 34, 0.4)',
+                        'Other': 'rgba(149, 165, 166, 0.4)'
+                    };
+                    const clientBorderColors = {
+                        'v2rayNG': '#667eea',
+                        'Nekobox': '#2ecc71',
+                        'Clash': '#f1c40f',
+                        'Shadowrocket': '#9b59b6',
+                        'Sing-box': '#e67e22',
+                        'Other': '#95a5a6'
+                    };
+
+                    apps.forEach(app => {
+                        datasets.push({
+                            label: app,
+                            data: data.clients[app] || [],
+                            borderColor: clientBorderColors[app],
+                            backgroundColor: clientColors[app],
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.3
+                        });
+                    });
+
+                    clientChart.data.labels = data.clients.labels;
+                    clientChart.data.datasets = datasets;
+                    clientChart.update();
+                });
+        }
+
+        function updateDailyChart() {
+            const dailyRange = document.getElementById('daily-range-select').value;
+            fetch(`/adminpanel/chart_data?daily_range=${dailyRange}`)
+                .then(response => response.json())
+                .then(data => {
+                    dailyChart.data.labels = data.daily.labels;
+                    dailyChart.data.datasets[0].data = data.daily.downloads;
+                    dailyChart.update();
+                });
+        }
+
+        function updateClientChart() {
+            const clientRange = document.getElementById('client-range-select').value;
+            fetch(`/adminpanel/chart_data?client_range=${clientRange}`)
+                .then(response => response.json())
+                .then(data => {
+                    const apps = ['v2rayNG', 'Nekobox', 'Clash', 'Shadowrocket', 'Sing-box', 'Other'];
+                    const clientColors = {
+                        'v2rayNG': 'rgba(102, 126, 234, 0.4)',
+                        'Nekobox': 'rgba(46, 204, 113, 0.4)',
+                        'Clash': 'rgba(241, 196, 15, 0.4)',
+                        'Shadowrocket': 'rgba(155, 89, 182, 0.4)',
+                        'Sing-box': 'rgba(230, 126, 34, 0.4)',
+                        'Other': 'rgba(149, 165, 166, 0.4)'
+                    };
+                    const clientBorderColors = {
+                        'v2rayNG': '#667eea',
+                        'Nekobox': '#2ecc71',
+                        'Clash': '#f1c40f',
+                        'Shadowrocket': '#9b59b6',
+                        'Sing-box': '#e67e22',
+                        'Other': '#95a5a6'
+                    };
+
+                    const datasets = [];
+                    apps.forEach(app => {
+                        datasets.push({
+                            label: app,
+                            data: data.clients[app] || [],
+                            borderColor: clientBorderColors[app],
+                            backgroundColor: clientColors[app],
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.3
+                        });
+                    });
+
+                    clientChart.data.labels = data.clients.labels;
+                    clientChart.data.datasets = datasets;
+                    clientChart.update();
+                });
+        }
+
         window.onload = function () {
             loadStats();
             loadPathsList();
             initDarkMode();
+            loadCharts();
         };
     </script>
 </body>
