@@ -1,0 +1,19 @@
+# Ignore old directories
+1-2-2026/
+13-3-2026/
+16-2-2026/
+old/
+old*/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+
+# Secrets and local databases
+.env
+*.db
+*.db.backup
+*.zip
+*.log
