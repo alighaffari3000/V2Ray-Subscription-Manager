@@ -112,12 +112,33 @@ sudo systemctl restart nginx
 ## 📂 Project Structure / ساختار فایل‌ها
 
 ```text
-├── app.py                # Main Flask Application / کد اصلی فرانت و بک‌اند
-├── install.sh            # Fully Automated Bash Installer / اسکریپت نصب خودکار
+├── app.py                # WSGI entry bootstrapper / فایل راه‌انداز پروژه
+├── app_factory.py        # Flask App factory setup / فایل ساخت و پیکربندی برنامه فلاسک
+├── config.py             # Global Config loader / مدیریت و بارگذاری تنظیمات از .env
+├── database.py           # SQLite connection & schema helpers / ارتباط با دیتابیس لایت
+├── install.sh            # Fully Automated Bash Installer / اسکریپت نصب خودکار سرور لینوکس
 ├── requirements.txt      # Python Dependencies / پیش‌نیازهای پروژه
 ├── v2ray-sub             # Nginx Server block Config / کانفیگ وب‌سرور Nginx
 ├── v2ray-sub.service     # Systemd Service configuration / کانفیگ سرویس لینوکس
-├── templates/
+│
+├── routes/               # Web Route Blueprints / فایل‌های روت و طرح‌واره‌های وب
+│   ├── client.py         # Dynamic Subscription client routes / خروجی سابسکریپشن
+│   ├── admin_pages.py    # Admin page templates rendering / رندر صفحات مدیریت
+│   └── admin_api.py      # Admin panel JSON API endpoints / ای‌پی‌آی‌های پنل مدیریت
+│
+├── services/             # Core business logic (Telegram Bot ready) / سرویس‌های محاسباتی هسته
+│   ├── subscription_service.py # Subscription resolution logic / پردازش نهایی ساب
+│   ├── path_service.py   # Sub paths CRUD operations / مدیریت پویای آدرس‌ها
+│   ├── config_service.py # Configs CRUD operations / مدیریت و تغییر نام کانفیگ‌ها
+│   └── statistics_service.py   # Chart telemetry & logs gathering / آمار و تاریخچه‌ها
+│
+├── utils/                # Pure side-effect-free helpers / ابزارهای کمکی محاسباتی
+│   ├── constants.py      # Shared system constants / ثوابت عمومی سیستم
+│   ├── config_parser.py  # VMess/VLESS decoders & flag retainers / استخراج‌کننده‌ها و پردازشگرها
+│   ├── user_agent.py     # User-Agent client classification / دسته‌بندی برنامه‌ها
+│   └── misc.py           # Size and proxy URL helpers / ابزارهای کمکی اندازه و پروکسی
+│
+├── templates/            # HTML templates / قالب‌های فرانت‌اند
 │   ├── admin.html        # Upgraded Admin Panel UI / پنل مدیریت پیشرفته
 │   └── login.html        # Login View / صفحه ورود پنل
 └── .gitignore            # Git ignored patterns / لیست فایل‌های نادیده گرفته شده در گیت
