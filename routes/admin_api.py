@@ -1,0 +1,268 @@
+# -*- coding: utf-8 -*-
+"""Admin JSON API routes (configs, paths, settings, stats, logs)."""
+
+from flask import Blueprint, request, jsonify, session
+
+from services.config_service import (
+    add_configs, delete_config, bulk_delete_configs,
+    set_config_enabled_status, reorder_configs, renumber_configs
+)
+from services.path_service import (
+    add_path, add_secondary_path as svc_add_secondary_path,
+    set_path_enabled, delete_path,
+    generate_random_path, get_all_paths, get_primary_path
+)
+from services.statistics_service import (
+    get_stats, get_chart_data, get_usage_stats, get_logs, clear_logs
+)
+from database import get_setting, set_setting
+from utils.misc import get_base_url
+
+admin_api_bp = Blueprint('admin_api', __name__)
+
+
+def _require_login():
+    """Return an error response if user is not logged in, else None."""
+    if not session.get('logged_in'):
+        return jsonify({'success': False, 'message': 'غیرمجاز'}), 401
+    return None
+
+
+def _get_json_safe():
+    """Safely get JSON body; returns {} if not JSON or unparseable."""
+    return request.get_json(silent=True) or {}
+
+
+# ─── Config endpoints ────────────────────────────────────────────
+
+@admin_api_bp.route('/adminpanel/add', methods=['POST'])
+def add_config():
+    err = _require_login()
+    if err:
+        return err
+
+    config_text = request.form.get('config_text', '').strip()
+    if not config_text:
+        return jsonify({'success': False, 'message': 'متن کانفیگ نمی‌تواند خالی باشد'})
+
+    added, duplicates, message = add_configs(config_text)
+    return jsonify({
+        'success': added > 0,
+        'message': message,
+        'added': added,
+        'duplicates': duplicates
+    })
+
+
+@admin_api_bp.route('/adminpanel/delete/<int:config_id>', methods=['POST'])
+def delete_config_route(config_id):
+    err = _require_login()
+    if err:
+        return err
+    success, message = delete_config(config_id)
+    return jsonify({'success': success, 'message': message})
+
+
+@admin_api_bp.route('/adminpanel/bulk_delete', methods=['POST'])
+def bulk_delete():
+    err = _require_login()
+    if err:
+        return err
+    data = _get_json_safe()
+    ids = data.get('ids', [])
+    success, message = bulk_delete_configs(ids)
+    return jsonify({'success': success, 'message': message})
+
+
+# Frontend calls /adminpanel/config/set_enabled/<id>
+@admin_api_bp.route('/adminpanel/config/set_enabled/<int:config_id>', methods=['POST'])
+def set_enabled(config_id):
+    err = _require_login()
+    if err:
+        return err
+    data = _get_json_safe()
+    enabled = data.get('enabled', True)
+    success, message = set_config_enabled_status(config_id, enabled)
+    return jsonify({'success': success, 'message': message})
+
+
+@admin_api_bp.route('/adminpanel/reorder', methods=['POST'])
+def reorder():
+    err = _require_login()
+    if err:
+        return err
+    data = _get_json_safe()
+    order_list = data.get('order', [])
+    success, message = reorder_configs(order_list)
+    return jsonify({'success': success, 'message': message})
+
+
+@admin_api_bp.route('/adminpanel/renumber', methods=['POST'])
+def renumber():
+    err = _require_login()
+    if err:
+        return err
+    renumber_configs()
+    return jsonify({'success': True, 'message': 'شماره‌گذاری مجدد با موفقیت انجام شد'})
+
+
+# ─── Settings endpoints ──────────────────────────────────────────
+
+# Frontend calls /adminpanel/set_format with form data: format=<value>
+@admin_api_bp.route('/adminpanel/set_format', methods=['POST'])
+def set_output_format():
+    err = _require_login()
+    if err:
+        return err
+    fmt = request.form.get('format') or _get_json_safe().get('format', 'base64')
+    if fmt not in ('base64', 'plain'):
+        return jsonify({'success': False, 'message': 'فرمت نامعتبر'})
+    set_setting('output_format', fmt)
+    return jsonify({'success': True, 'message': f'فرمت خروجی به {fmt} تغییر کرد'})
+
+
+# Frontend calls /adminpanel/set_sort_order with form data: sort_order=<value>
+@admin_api_bp.route('/adminpanel/set_sort_order', methods=['POST'])
+def set_sort_order():
+    err = _require_login()
+    if err:
+        return err
+    order = request.form.get('sort_order') or _get_json_safe().get('sort_order') or _get_json_safe().get('order', 'asc')
+    if order not in ('asc', 'desc'):
+        return jsonify({'success': False, 'message': 'ترتیب نامعتبر'})
+    set_setting('config_sort_order', order)
+    return jsonify({'success': True, 'message': f'ترتیب نمایش به {order} تغییر کرد'})
+
+
+# ─── Path endpoints ──────────────────────────────────────────────
+
+# Frontend calls /adminpanel/paths to list all paths
+@admin_api_bp.route('/adminpanel/paths')
+def list_paths():
+    err = _require_login()
+    if err:
+        return err
+    paths = get_all_paths()
+    return jsonify(paths)
+
+
+@admin_api_bp.route('/adminpanel/paths/set_primary', methods=['POST'])
+def set_primary_path():
+    err = _require_login()
+    if err:
+        return err
+    new_path = request.form.get('path', '').strip() or _get_json_safe().get('path', '').strip()
+    success, message, _ = add_path(new_path)
+    return jsonify({'success': success, 'message': message})
+
+
+# Frontend sends FormData with path=<value> to change the primary subscription path
+@admin_api_bp.route('/adminpanel/paths/add', methods=['POST'])
+def add_path_route():
+    err = _require_login()
+    if err:
+        return err
+
+    # Accept both form data and JSON
+    new_path = request.form.get('path', '').strip()
+    if not new_path:
+        data = _get_json_safe()
+        new_path = data.get('path', '').strip()
+
+    success, message, _ = add_path(new_path)
+
+    result = {'success': success, 'message': message}
+    if success:
+        result['current_path'] = new_path
+        base_url = get_base_url(request)
+        result['current_url'] = f"{base_url}sub/{new_path}"
+
+    return jsonify(result)
+
+
+@admin_api_bp.route('/adminpanel/paths/set_enabled/<int:path_id>', methods=['POST'])
+def set_path_enabled_route(path_id):
+    err = _require_login()
+    if err:
+        return err
+    data = _get_json_safe()
+    enabled = data.get('enabled', True)
+    success, message = set_path_enabled(path_id, enabled)
+    return jsonify({'success': success, 'message': message})
+
+
+@admin_api_bp.route('/adminpanel/paths/delete/<int:path_id>', methods=['POST'])
+def delete_path_route(path_id):
+    err = _require_login()
+    if err:
+        return err
+    success, message = delete_path(path_id)
+    return jsonify({'success': success, 'message': message})
+
+
+# Frontend calls GET /adminpanel/paths/generate_random
+@admin_api_bp.route('/adminpanel/paths/generate_random', methods=['GET', 'POST'])
+def generate_random_path_route():
+    err = _require_login()
+    if err:
+        return err
+    random_path = generate_random_path()
+    return jsonify({'success': True, 'path': random_path})
+
+
+# ─── Stats & Charts ──────────────────────────────────────────────
+
+@admin_api_bp.route('/adminpanel/stats')
+def stats():
+    err = _require_login()
+    if err:
+        return err
+    return jsonify(get_stats())
+
+
+# Frontend calls /adminpanel/usage_stats?range=<value>
+@admin_api_bp.route('/adminpanel/usage_stats')
+def usage_stats():
+    err = _require_login()
+    if err:
+        return err
+    range_val = request.args.get('range', '24h')
+    return jsonify(get_usage_stats(range_val))
+
+
+@admin_api_bp.route('/adminpanel/chart_data')
+def chart_data():
+    err = _require_login()
+    if err:
+        return err
+    daily_range = request.args.get('daily_range', '30d')
+    client_range = request.args.get('client_range', '30d')
+    data = get_chart_data(daily_range, client_range)
+    return jsonify(data)
+
+
+# ─── Logs ─────────────────────────────────────────────────────────
+
+@admin_api_bp.route('/adminpanel/logs')
+def logs():
+    err = _require_login()
+    if err:
+        return err
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 50, type=int)
+    search = request.args.get('search', '')
+    status_filter = request.args.get('status', '')
+
+    logs_list, total, total_pages = get_logs(page, per_page, search, status_filter)
+
+    return jsonify(logs_list)
+
+
+# Frontend calls /adminpanel/clear_logs
+@admin_api_bp.route('/adminpanel/clear_logs', methods=['POST'])
+def clear_logs_route():
+    err = _require_login()
+    if err:
+        return err
+    success, message = clear_logs()
+    return jsonify({'success': success, 'message': message})

@@ -73,9 +73,21 @@ pip install -r requirements.txt
 Create a `.env` file in the root directory:
 ```env
 ADMIN_USERNAME=your_username
-ADMIN_PASSWORD=your_password
+ADMIN_PASSWORD=your_hashed_password
 SECRET_KEY=generate_random_hex
 ```
+
+**Important:** `ADMIN_PASSWORD` must be a Werkzeug password hash, not a plain-text password.
+Generate it with:
+```bash
+python3 -c "from werkzeug.security import generate_password_hash; print(generate_password_hash(input('Password: ')))"
+```
+
+Then paste the output (e.g. `scrypt:32768:8:1$...`) as the value of `ADMIN_PASSWORD`.
+
+> **Migrating from plain-text passwords:** If you already have a running installation with
+> a plain-text `ADMIN_PASSWORD`, re-run `sudo bash install.sh` or manually replace the value
+> with a hash generated using the command above, then restart the service.
 
 ### 4. Setup systemd service
 Copy `v2ray-sub.service` to `/etc/systemd/system/v2ray-sub.service`:

@@ -51,26 +51,19 @@ apt update && apt install -y python3 python3-pip python3-venv nginx certbot pyth
 
 echo -e "${GREEN}[2/8] ایجاد دایرکتوری پروژه...${NC}"
 mkdir -p $PROJECT_DIR
-cd $PROJECT_DIR
 
 echo -e "${GREEN}[3/8] کپی فایل‌های پروژه...${NC}"
-echo -e "${YELLOW}لطفاً مطمئن شوید فایل‌های زیر در دایرکتوری فعلی اسکریپت قرار دارند:${NC}"
-echo "  - app.py"
-echo "  - requirements.txt"
-echo "  - templates/login.html"
-echo "  - templates/admin.html"
-echo ""
-read -p "آیا فایل‌های فوق آماده کپی هستند? (y/n): " confirm
-if [ "$confirm" != "y" ]; then
-    echo "لطفاً ابتدا فایل‌ها را کنار اسکریپت قرار دهید و دوباره تلاش کنید."
-    exit 1
-fi
 
 # کپی فایل‌ها از مسیر فعلی به مسیر پروژه (در صورت متفاوت بودن)
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 if [ "$SCRIPT_DIR" != "$PROJECT_DIR" ]; then
-    cp -r "$SCRIPT_DIR/app.py" "$SCRIPT_DIR/requirements.txt" "$SCRIPT_DIR/templates" "$PROJECT_DIR/"
+    cp -r "$SCRIPT_DIR/app.py" "$SCRIPT_DIR/app_factory.py" "$SCRIPT_DIR/config.py" \
+          "$SCRIPT_DIR/database.py" "$SCRIPT_DIR/requirements.txt" \
+          "$SCRIPT_DIR/templates" "$SCRIPT_DIR/routes" "$SCRIPT_DIR/services" \
+          "$SCRIPT_DIR/utils" "$PROJECT_DIR/"
 fi
+
+cd $PROJECT_DIR
 
 echo -e "${GREEN}[4/8] ایجاد محیط مجازی Python و نصب پیش‌نیازها...${NC}"
 python3 -m venv venv
@@ -80,15 +73,19 @@ pip install -r requirements.txt
 
 echo -e "${GREEN}[5/8] ساخت فایل .env...${NC}"
 SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+
+# Hash the admin password using Werkzeug so check_password_hash works at login
+HASHED_PASSWORD=$(python3 -c "from werkzeug.security import generate_password_hash; print(generate_password_hash('$admin_password'))")
+
 cat > .env << EOF
 ADMIN_USERNAME=$admin_username
-ADMIN_PASSWORD=$admin_password
+ADMIN_PASSWORD=$HASHED_PASSWORD
 SECRET_KEY=$SECRET_KEY
 EOF
 chmod 600 .env
 
 echo -e "${GREEN}[6/8] راه‌اندازی پایگاه داده...${NC}"
-python3 -c "from app import init_db; init_db()"
+python3 -c "from app_factory import create_app; create_app()"
 
 echo -e "${GREEN}[7/8] پیکربندی و راه‌اندازی Nginx برای دامنه $DOMAIN...${NC}"
 cat > /etc/nginx/sites-available/v2ray-sub << EOF
