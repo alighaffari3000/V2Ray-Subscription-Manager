@@ -57,10 +57,17 @@ echo -e "${GREEN}[3/8] کپی فایل‌های پروژه...${NC}"
 # کپی فایل‌ها از مسیر فعلی به مسیر پروژه (در صورت متفاوت بودن)
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 if [ "$SCRIPT_DIR" != "$PROJECT_DIR" ]; then
+    # کپی فایل‌های وب‌پنل
     cp -r "$SCRIPT_DIR/app.py" "$SCRIPT_DIR/app_factory.py" "$SCRIPT_DIR/config.py" \
           "$SCRIPT_DIR/database.py" "$SCRIPT_DIR/requirements.txt" \
           "$SCRIPT_DIR/templates" "$SCRIPT_DIR/routes" "$SCRIPT_DIR/services" \
           "$SCRIPT_DIR/utils" "$PROJECT_DIR/"
+    # کپی فایل‌های موتور اسکن V2RayDAR
+    if [ -d "$SCRIPT_DIR/../V2RayDAR-main" ]; then
+        cp -r "$SCRIPT_DIR/../V2RayDAR-main" "$PROJECT_DIR/../"
+    elif [ -d "$SCRIPT_DIR/V2RayDAR-main" ]; then
+        cp -r "$SCRIPT_DIR/V2RayDAR-main" "$PROJECT_DIR/../"
+    fi
 fi
 
 cd $PROJECT_DIR
@@ -70,6 +77,31 @@ python3 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
+
+echo -e "${GREEN}[4.5/8] نصب Rust، کامپایل V2RayDAR و نصب Sing-box...${NC}"
+# نصب Rust در صورت عدم وجود cargo
+if ! command -v cargo &> /dev/null; then
+    echo -e "${YELLOW}Rust یافت نشد. در حال نصب Rust...${NC}"
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    source $HOME/.cargo/env
+fi
+
+# کامپایل V2RayDAR
+if [ -d "/home/V2RayDAR-main" ]; then
+    echo -e "${GREEN}در حال کامپایل موتور V2RayDAR...${NC}"
+    cd /home/V2RayDAR-main
+    cargo build --release
+    cp target/release/v2raydar /usr/local/bin/v2raydar
+    cd $PROJECT_DIR
+else
+    echo -e "${RED}⚠️ پوشه V2RayDAR-main یافت نشد. از باینری‌های عمومی استفاده خواهد شد.${NC}"
+fi
+
+# نصب Sing-box
+if ! command -v sing-box &> /dev/null; then
+    echo -e "${GREEN}در حال نصب هسته Sing-box...${NC}"
+    bash -c "$(curl -L https://sing-box.app/install.sh)"
+fi
 
 echo -e "${GREEN}[5/8] ساخت فایل .env...${NC}"
 SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
