@@ -1,20 +1,23 @@
-# Ignore old directories
-1-2-2026/
-13-3-2026/
-16-2-2026/
-13-7-2026/
-old/
-old*/
-
 # Python
 __pycache__/
 *.pyc
 *.pyo
-venv/
-
-# Secrets and local databases
-.env
+*.pyd
+.pytest_cache/
 *.db
-*.db.backup
-*.zip
-*.log
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Rust
+V2RayDAR-main/target/
+V2RayDAR-main/Cargo.lock
+
+# Environments & Configs
+.env
+.vscode/
+.idea/
+instance/
+dist/
+build/
+*.egg-info/

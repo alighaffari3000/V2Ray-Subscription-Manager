@@ -1,0 +1,200 @@
+#* Local HTTP bind address; avoid 0.0.0.0 unless you intend LAN exposure.
+bind: 127.0.0.1:27141
+# Number of best working configs published to subscription endpoints.
+top_n: 10
+# Auto-refresh interval in seconds; 0 disables timer refreshes.
+refresh_seconds: 300
+# true returns /subscription as base64 for v2rayN/v2rayNG compatibility.
+encoded_subscription: true
+# true re-pings the last saved top-N first and keeps stable configs ahead.
+prioritize_stability: true
+# true publishes early working configs before final ranking; results may be less optimal & unstable.
+return_configs_asap: false
+# true tests every candidate; expect longer runs and more CPU/network use.
+scan_all_configs: false
+# Per-source download timeout in milliseconds; raise only for slow sources.
+fetch_timeout_ms: 30000
+# Subscription sources fetched in parallel; high values can stress network/RAM.
+fetch_concurrency: 8
+# Maximum bytes accepted per source; high values allow large memory use.
+max_subscription_bytes: 33554432
+# true skips live source downloads and tests only cached subscription snapshots.
+use_cache_only: false
+# Optional private share link used as a fetch bridge on restricted networks
+emergency_config: null
+# Optional path to a GeoLite2-Country.mmdb file for country detection.
+# null uses the embedded database; set a path only if you need a custom one.
+geoip_db_path: null
+# Days after which unreachable configs are removed from the database.
+clean_offlines_after_days: 7
+
+#* LAN sharing controls for phones or other devices on your network.
+sharing:
+  # false keeps endpoints local-only unless bind is manually exposed.
+  enabled: false
+  # true requires ?token=... for LAN subscription/results requests.
+  require_token: false
+  # true auto-generates a token; a string sets your own shared secret.
+  token: null
+
+#* Persistent local proxy for routing app traffic through ranked configs.
+proxy:
+  # false disables the persistent proxy (subscription endpoints still work).
+  enabled: false
+  # Port for the mixed SOCKS5/HTTP proxy (sing-box mixed inbound).
+  port: 27910
+  # true binds to 0.0.0.0 and adds a firewall rule for LAN access.
+  discoverable: false
+  # URL tested through the proxy to verify it's alive.
+  health_check_url: https://cp.cloudflare.com
+  # Seconds between proxy health checks.
+  health_check_interval_seconds: 60
+
+#* Candidate validation settings.
+probe:
+  # active uses sing-box for real HTTP tests; tcp is only a lightweight diagnostic.
+  mode: active
+  # null auto-detects bundled/Termux sing-box; set a path if needed.
+  sing_box_path: null
+  # TCP diagnostic timeout in milliseconds; lower fails faster on bad networks.
+  connect_timeout_ms: 5000
+  # HTTP active-probe timeout per candidate; high values slow failed probes.
+  active_timeout_ms: 30000
+  # Wait time for each temporary sing-box process to start.
+  startup_timeout_ms: 5000
+  # HTTP checks per active batch; high values can increase CPU/network pressure.
+  concurrency: 16
+  # Initial candidates per sing-box batch; high values can raise process RAM use.
+  batch_size: 20
+  # Parallel sing-box processes; keep low or expect high RAM/socket usage.
+  process_concurrency: null
+  # URL loaded through each candidate to prove reachability.
+  test_url: https://www.gstatic.com/generate_204
+  # HTTP status codes treated as successful active probes.
+  accepted_statuses: [204, 200]
+  # Optional speed-test URL; enabling it consumes extra bandwidth
+  # You can use this URL for example: https://archive.org/download/steamboat-willie_1928/steamboat-willie_1928.ia.mp4
+  download_url: null
+  # Maximum bytes read per speed test; high values use more data/time.
+  download_bytes_limit: 1048576
+
+#* Public subscription sources to fetch, parse, probe, and rank.
+subscriptions:
+  # Display name for this source in logs, TUI, and results.
+  - name: src-1
+    # Subscription URL to fetch.
+    url: https://raw.githubusercontent.com/masir-sefid/Sub/main/@Masir_Sefid.txt
+    # true includes this source in refreshes.
+    enabled: true
+    # Lower numbers rank and schedule earlier than higher numbers.
+    priority: 1
+
+  - name: src-2
+    url: https://github.com/Epodonios/v2ray-configs/raw/main/All_Configs_Sub.txt
+    enabled: true
+    priority: 2
+
+  - name: src-3
+    url: https://raw.githubusercontent.com/ALIILAPRO/v2rayNG-Config/main/sub.txt
+    enabled: true
+    priority: 3
+
+  - name: src-4
+    url: https://raw.githubusercontent.com/zieng2/wl/main/vless_universal.txt
+    enabled: true
+    priority: 4
+
+  - name: src-5
+    url: https://raw.githubusercontent.com/barry-far/V2ray-config/main/All_Configs_base64_Sub.txt
+    enabled: true
+    priority: 5
+
+  - name: src-6
+    url: https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/Vless-Reality-White-Lists-Rus-Mobile.txt
+    enabled: true
+    priority: 6
+
+  - name: src-7
+    url: https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/Vless-Reality-White-Lists-Rus-Mobile-2.txt
+    enabled: true
+    priority: 7
+
+  - name: src-8
+    url: https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/BLACK_VLESS_RUS_mobile.txt
+    enabled: true
+    priority: 8
+
+  - name: src-9
+    url: https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/WHITE-CIDR-RU-checked.txt
+    enabled: true
+    priority: 9
+
+  - name: src-10
+    url: https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/BLACK_VLESS_RUS.txt
+    enabled: true
+    priority: 10
+
+  - name: src-11
+    url: https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/refs/heads/main/BLACK_SS+All_RUS.txt
+    enabled: true
+    priority: 11
+
+  - name: src-12
+    url: https://raw.githubusercontent.com/F0rc3Run/F0rc3Run/main/splitted-by-protocol/vless.txt
+    enabled: true
+    priority: 12
+
+  - name: src-13
+    url: https://raw.githubusercontent.com/barry-far/V2ray-config/main/Sub1.txt
+    enabled: true
+    priority: 13
+
+  - name: src-14
+    url: https://raw.githubusercontent.com/barry-far/V2ray-Config/main/Sub2.txt
+    enabled: true
+    priority: 14
+
+  - name: src-15
+    url: https://raw.githubusercontent.com/barry-far/V2ray-Config/main/Sub3.txt
+    enabled: true
+    priority: 15
+
+  - name: src-16
+    url: https://raw.githubusercontent.com/ebrasha/free-v2ray-public-list/refs/heads/main/V2Ray-Config-By-EbraSha.txt
+    enabled: true
+    priority: 16
+
+  - name: src-17
+    url: https://raw.githubusercontent.com/MohammadBahemmat/V2ray-Collector/main/subscriptions/all.txt
+    enabled: true
+    priority: 17
+
+  - name: src-18
+    url: https://raw.githubusercontent.com/mahdibland/V2RayAggregator/master/sub/sub_merge.txt
+    enabled: true
+    priority: 18
+
+  - name: src-19
+    url: https://raw.githubusercontent.com/mfuu/v2ray/master/v2ray.txt
+    enabled: true
+    priority: 19
+
+  - name: src-20
+    url: https://raw.githubusercontent.com/ermaozi/get_subscribe/main/subscribe/v2ray.txt
+    enabled: true
+    priority: 20
+
+  - name: src-21
+    url: https://raw.githubusercontent.com/ThomasJasperthecat/sub/main/sublist1.txt
+    enabled: true
+    priority: 21
+
+  - name: src-22
+    url: https://sub.iampedi5.live/sub/base64.txt
+    enabled: true
+    priority: 22
+
+  - name: src-23
+    url: https://raw.githubusercontent.com/iampedii/whitedns-sub/refs/heads/main/mihomo.yaml
+    enabled: true
+    priority: 23
