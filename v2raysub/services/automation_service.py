@@ -48,6 +48,8 @@ def locate_v2raydar():
         os.path.join(workspace_root, 'V2RayDAR-main', 'target', 'debug', 'v2raydar.exe'),
         os.path.join(workspace_root, 'V2RayDAR-main', 'target', 'release', 'v2raydar'),
         os.path.join(workspace_root, 'V2RayDAR-main', 'target', 'debug', 'v2raydar'),
+        os.path.join(v2raysub_dir, 'V2RayDAR-main', 'target', 'release', 'v2raydar'),
+        os.path.join(v2raysub_dir, 'V2RayDAR-main', 'target', 'debug', 'v2raydar'),
         os.path.join(v2raysub_dir, 'v2raydar.exe'),
         os.path.join(v2raysub_dir, 'v2raydar'),
         'v2raydar.exe',

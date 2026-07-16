@@ -62,11 +62,11 @@ if [ "$SCRIPT_DIR" != "$PROJECT_DIR" ]; then
           "$SCRIPT_DIR/database.py" "$SCRIPT_DIR/requirements.txt" \
           "$SCRIPT_DIR/templates" "$SCRIPT_DIR/routes" "$SCRIPT_DIR/services" \
           "$SCRIPT_DIR/utils" "$PROJECT_DIR/"
-    # کپی فایل‌های موتور اسکن V2RayDAR
+    # کپی فایل‌های موتور اسکن V2RayDAR داخل مسیر پروژه
     if [ -d "$SCRIPT_DIR/../V2RayDAR-main" ]; then
-        cp -r "$SCRIPT_DIR/../V2RayDAR-main" "$PROJECT_DIR/../"
+        cp -r "$SCRIPT_DIR/../V2RayDAR-main" "$PROJECT_DIR/"
     elif [ -d "$SCRIPT_DIR/V2RayDAR-main" ]; then
-        cp -r "$SCRIPT_DIR/V2RayDAR-main" "$PROJECT_DIR/../"
+        cp -r "$SCRIPT_DIR/V2RayDAR-main" "$PROJECT_DIR/"
     fi
 fi
 
@@ -87,12 +87,18 @@ if ! command -v cargo &> /dev/null; then
 fi
 
 # کامپایل V2RayDAR
-if [ -d "/home/V2RayDAR-main" ]; then
+if [ -d "$PROJECT_DIR/V2RayDAR-main" ]; then
     echo -e "${GREEN}در حال کامپایل موتور V2RayDAR...${NC}"
-    cd /home/V2RayDAR-main
+    cd "$PROJECT_DIR/V2RayDAR-main"
     cargo build --release
     cp target/release/v2raydar /usr/local/bin/v2raydar
     cd $PROJECT_DIR
+    
+    # تست اجرای باینری موتور
+    if command -v v2raydar &> /dev/null; then
+        echo -e "${GREEN}🔎 تست اجرای موتور اسکن V2RayDAR با موفقیت انجام شد:${NC}"
+        v2raydar --version || v2raydar worker --help || true
+    fi
 else
     echo -e "${RED}⚠️ پوشه V2RayDAR-main یافت نشد. از باینری‌های عمومی استفاده خواهد شد.${NC}"
 fi
@@ -130,6 +136,16 @@ server {
 
     client_max_body_size 10M;
 
+    # Gzip Compression
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+
+    # Security Headers
+    add_header X-Frame-Options "SAMEORIGIN";
+    add_header X-XSS-Protection "1; mode=block";
+    add_header X-Content-Type-Options "nosniff";
+    add_header Referrer-Policy "no-referrer-when-downgrade";
+
     location / {
         proxy_pass http://127.0.0.1:5000;
 
@@ -137,6 +153,11 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
+
+        # WebSockets support
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
 
         proxy_connect_timeout 60s;
         proxy_send_timeout    60s;
@@ -173,17 +194,50 @@ EOF
 # تنظیم پرمیشن‌ها برای مالک www-data جهت مدیریت دیتابیس
 chown -R www-data:www-data $PROJECT_DIR
 chmod -R 755 $PROJECT_DIR
-chmod 600 $PROJECT_DIR/.env
-chmod 644 $PROJECT_DIR/database.db
+if [ -f "$PROJECT_DIR/.env" ]; then
+    chmod 600 "$PROJECT_DIR/.env"
+fi
+if [ -f "$PROJECT_DIR/database.db" ]; then
+    chmod 644 "$PROJECT_DIR/database.db"
+fi
 
 systemctl daemon-reload
 systemctl enable v2ray-sub
 systemctl restart v2ray-sub
 
+# بررسی وضعیت اجرای سرویس
+sleep 2
+if systemctl is-active v2ray-sub > /dev/null; then
+    echo -e "${GREEN}✅ سرویس v2ray-sub با موفقیت راه‌اندازی شد و در حال اجرا است.${NC}"
+else
+    echo -e "${RED}❌ خطای بحرانی: سرویس v2ray-sub با خطا مواجه شد و بالا نیامد! لاگ‌های زیر را بررسی کنید:${NC}"
+    journalctl -u v2ray-sub -n 20 --no-pager
+    exit 1
+fi
+
 echo ""
 echo -e "${GREEN}==========================================${NC}"
 echo -e "${GREEN}🏆 نصب و راه‌اندازی سیستم با موفقیت به پایان رسید!${NC}"
 echo -e "${GREEN}==========================================${NC}"
+echo ""
+
+# ثبت گواهی SSL در صورت درخواست کاربر
+read -p "🔒 آیا می‌خواهید گواهی امنیتی SSL (HTTPS) را با Certbot نصب کنید؟ (y/n): " setup_ssl
+if [ "$setup_ssl" = "y" ]; then
+    echo -e "${GREEN}در حال اجرای Certbot جهت نصب SSL...${NC}"
+    certbot --nginx -d $DOMAIN --non-interactive --agree-tos --email webmaster@$DOMAIN || echo -e "${RED}⚠️ صدور گواهی با خطا مواجه شد. لطفا بعدا به صورت دستی اقدام کنید.${NC}"
+fi
+
+echo ""
+echo -e "${GREEN}اطلاعات دسترسی به پنل مدیریت:${NC}"
+echo -e "  URL:       ${YELLOW}http://$DOMAIN/adminpanel${NC} (یا https در صورت نصب SSL)"
+echo -e "  Username:  ${YELLOW}$admin_username${NC}"
+echo -e "  Password:  ${YELLOW}[همان رمزی که انتخاب کردید]${NC}"
+echo ""
+echo -e "${GREEN}لینک سابسکریپشن فعال:${NC}"
+echo -e "  Subscription URL: ${YELLOW}http://$DOMAIN/sub/freeconfigs${NC}"
+echo ""
+echo "=========================================="===================${NC}"
 echo ""
 
 # ثبت گواهی SSL در صورت درخواست کاربر
