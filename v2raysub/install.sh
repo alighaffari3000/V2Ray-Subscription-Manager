@@ -236,24 +236,4 @@ echo -e "  Password:  ${YELLOW}[همان رمزی که انتخاب کردید]$
 echo ""
 echo -e "${GREEN}لینک سابسکریپشن فعال:${NC}"
 echo -e "  Subscription URL: ${YELLOW}http://$DOMAIN/sub/freeconfigs${NC}"
-echo ""
-echo "=========================================="===================${NC}"
-echo ""
-
-# ثبت گواهی SSL در صورت درخواست کاربر
-read -p "🔒 آیا می‌خواهید گواهی امنیتی SSL (HTTPS) را با Certbot نصب کنید؟ (y/n): " setup_ssl
-if [ "$setup_ssl" = "y" ]; then
-    echo -e "${GREEN}در حال اجرای Certbot جهت نصب SSL...${NC}"
-    certbot --nginx -d $DOMAIN --non-interactive --agree-tos --email webmaster@$DOMAIN || echo -e "${RED}⚠️ صدور گواهی با خطا مواجه شد. لطفا بعدا به صورت دستی اقدام کنید.${NC}"
-fi
-
-echo ""
-echo -e "${GREEN}اطلاعات دسترسی به پنل مدیریت:${NC}"
-echo -e "  URL:       ${YELLOW}http://$DOMAIN/adminpanel${NC} (یا https در صورت نصب SSL)"
-echo -e "  Username:  ${YELLOW}$admin_username${NC}"
-echo -e "  Password:  ${YELLOW}[همان رمزی که انتخاب کردید]${NC}"
-echo ""
-echo -e "${GREEN}لینک سابسکریپشن فعال:${NC}"
-echo -e "  Subscription URL: ${YELLOW}http://$DOMAIN/sub/freeconfigs${NC}"
-echo ""
 echo "=========================================="
