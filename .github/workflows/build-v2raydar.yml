@@ -46,9 +46,29 @@ jobs:
         run: cargo build --release --manifest-path V2RayDAR-main/Cargo.toml
 
       - name: Smoke-test binary
+        # --version alone would still pass if the worker interface broke, and
+        # the panel talks to the engine only through `worker`. Assert the
+        # subcommand, the flags install.sh passes, and that a real worker run
+        # answers with schema_version 1 JSON on stdout.
         run: |
-          V2RayDAR-main/target/release/v2raydar --version
-          cp V2RayDAR-main/target/release/v2raydar v2raydar-linux-amd64
+          BIN=V2RayDAR-main/target/release/v2raydar
+          $BIN --version
+          $BIN worker --help
+          $BIN worker discovery --help | grep -q -- --fetch-concurrency
+          $BIN worker discovery --help | grep -q -- --probe-process-concurrency
+
+          echo '{"schema_version":1,"mode":"discovery","job_id":"ci","sources":[]}' \
+            | $BIN worker discovery --fetch-concurrency 1 --probe-concurrency 1 \
+                   --probe-process-concurrency 1 > out.json
+          cat out.json
+          python3 -c "
+          import json
+          d = json.load(open('out.json'))
+          assert d['schema_version'] == 1, d
+          assert 'success' in d, d
+          print('worker contract OK:', d)
+          "
+          cp $BIN v2raydar-linux-amd64
 
       - name: Publish to fixed release tag
         uses: softprops/action-gh-release@v2
