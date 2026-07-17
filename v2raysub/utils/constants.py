@@ -1,6 +1,11 @@
 # -*- coding: utf-8 -*-
 """Centralized reusable constants."""
 
+import os
+
+# مسیر پایه پروژه (مطلق — تا اجرای برنامه از هر دایرکتوری، دیتابیس اشتباه ساخته نشود)
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 # Status codes used in subscription_logs and API responses
 STATUS_SUCCESS = 'SUCCESS'
 STATUS_NOT_FOUND = 'NOT_FOUND'
@@ -29,5 +34,10 @@ DAYS_MAP = {'7d': 7, '30d': 30, '90d': 90}
 # Default subscription path
 DEFAULT_PATH = 'freeconfigs'
 
-# Database filename
-DATABASE = 'database.db'
+# Database file (absolute path)
+DATABASE = os.path.join(BASE_DIR, 'database.db')
+
+# Cross-process coordination files (shared between gunicorn workers)
+SCHEDULER_LOCK_FILE = os.path.join(BASE_DIR, 'scheduler.lock')
+SCAN_LOCK_FILE = os.path.join(BASE_DIR, 'scan.lock')
+SCAN_CANCEL_FLAG = os.path.join(BASE_DIR, 'scan_cancel.flag')

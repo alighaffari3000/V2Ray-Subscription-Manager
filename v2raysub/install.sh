@@ -112,8 +112,10 @@ fi
 echo -e "${GREEN}[5/8] ساخت فایل .env...${NC}"
 SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
 
-# Hash the admin password using Werkzeug so check_password_hash works at login
-HASHED_PASSWORD=$(python3 -c "from werkzeug.security import generate_password_hash; print(generate_password_hash('$admin_password'))")
+# Hash the admin password using Werkzeug so check_password_hash works at login.
+# The password is passed via an environment variable (NOT string interpolation)
+# so special characters like ' or $ cannot break or inject into the command.
+HASHED_PASSWORD=$(ADMIN_PW="$admin_password" python3 -c "import os; from werkzeug.security import generate_password_hash; print(generate_password_hash(os.environ['ADMIN_PW']))")
 
 cat > .env << EOF
 ADMIN_USERNAME=$admin_username
@@ -225,7 +227,13 @@ echo ""
 read -p "🔒 آیا می‌خواهید گواهی امنیتی SSL (HTTPS) را با Certbot نصب کنید؟ (y/n): " setup_ssl
 if [ "$setup_ssl" = "y" ]; then
     echo -e "${GREEN}در حال اجرای Certbot جهت نصب SSL...${NC}"
-    certbot --nginx -d $DOMAIN --non-interactive --agree-tos --email webmaster@$DOMAIN || echo -e "${RED}⚠️ صدور گواهی با خطا مواجه شد. لطفا بعدا به صورت دستی اقدام کنید.${NC}"
+    if certbot --nginx -d $DOMAIN --non-interactive --agree-tos --email webmaster@$DOMAIN; then
+        # با فعال شدن HTTPS، کوکی سشن فقط روی اتصال امن ارسال شود
+        echo "SESSION_COOKIE_SECURE=1" >> "$PROJECT_DIR/.env"
+        systemctl restart v2ray-sub
+    else
+        echo -e "${RED}⚠️ صدور گواهی با خطا مواجه شد. لطفا بعدا به صورت دستی اقدام کنید.${NC}"
+    fi
 fi
 
 echo ""

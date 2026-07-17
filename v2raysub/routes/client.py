@@ -3,6 +3,7 @@
 
 from flask import Blueprint, request, Response
 
+from extensions import limiter
 from services.subscription_service import generate_subscription_content
 from services.path_service import find_path_by_value
 from services.statistics_service import log_subscription_access
@@ -11,10 +12,14 @@ from utils.constants import STATUS_SUCCESS, STATUS_NOT_FOUND, STATUS_DISABLED_PA
 client_bp = Blueprint('client', __name__)
 
 
+# Explicit per-minute limit instead of the default daily cap: users behind
+# CGNAT share one IP, so a "200 per day" cap would cut off whole groups.
 @client_bp.route('/sub/<path:sub_path>')
+@limiter.limit('30 per minute')
 def subscription(sub_path):
     """Serve the subscription content for a given path."""
-    ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    # ProxyFix resolves the real client IP from X-Forwarded-For behind Nginx
+    ip = request.remote_addr
     ua = request.headers.get('User-Agent', '')
 
     path_row = find_path_by_value(sub_path)

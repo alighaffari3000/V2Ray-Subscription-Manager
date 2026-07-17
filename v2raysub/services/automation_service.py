@@ -12,8 +12,19 @@ import atexit
 import uuid
 from database import get_db, get_setting
 from utils.config_parser import detect_config_type, get_config_identity
+import utils.constants as constants
+from utils.process_lock import InterProcessLock
 
+# In-process lock (fast path) + file lock shared between gunicorn workers.
+# A threading.Lock alone cannot prevent two worker processes from scanning
+# concurrently, which caused duplicate imports and doubled load.
 SCAN_LOCK = threading.Lock()
+SCAN_FILE_LOCK = InterProcessLock(constants.SCAN_LOCK_FILE)
+
+
+def is_scan_active():
+    """True if a scan is running in this or any other worker process."""
+    return SCAN_LOCK.locked() or SCAN_FILE_LOCK.is_locked_elsewhere()
 
 def get_validated_concurrency(key, default):
     """Retrieve and validate concurrency config parameter from settings.
@@ -88,10 +99,24 @@ def terminate_all_subprocesses():
 def cleanup_on_exit():
     terminate_all_subprocesses()
     try:
+        SCAN_FILE_LOCK.release()
+    except Exception:
+        pass
+    try:
         if SCAN_LOCK.locked():
             SCAN_LOCK.release()
     except Exception:
         pass
+
+
+def _watch_for_cancel(proc):
+    """Poll the shared cancel flag so a cancel issued from another worker
+    process (the flag file) also kills a scan running in this process."""
+    while proc.poll() is None:
+        if is_cancel_requested():
+            terminate_all_subprocesses()
+            return
+        time.sleep(1)
 
 
 class Runner:
@@ -110,7 +135,9 @@ class Runner:
             )
             with _SUBPROCESSES_LOCK:
                 _ACTIVE_SUBPROCESSES.append(proc)
-            
+
+            threading.Thread(target=_watch_for_cancel, args=(proc,), daemon=True).start()
+
             try:
                 stdout, stderr = proc.communicate(input=input_json, timeout=timeout)
                 ret_code = proc.returncode
@@ -462,14 +489,25 @@ _CANCEL_REQUESTED = False
 _CANCEL_LOCK = threading.Lock()
 
 def set_cancel_requested(val):
+    """Set the cancel flag both in-memory and as a flag file, so a cancel
+    request served by one gunicorn worker reaches the worker running the scan."""
     global _CANCEL_REQUESTED
     with _CANCEL_LOCK:
         _CANCEL_REQUESTED = val
+    try:
+        if val:
+            with open(constants.SCAN_CANCEL_FLAG, 'w') as f:
+                f.write('1')
+        elif os.path.exists(constants.SCAN_CANCEL_FLAG):
+            os.remove(constants.SCAN_CANCEL_FLAG)
+    except OSError:
+        pass
 
 def is_cancel_requested():
-    global _CANCEL_REQUESTED
     with _CANCEL_LOCK:
-        return _CANCEL_REQUESTED
+        if _CANCEL_REQUESTED:
+            return True
+    return os.path.exists(constants.SCAN_CANCEL_FLAG)
 
 
 class AutomationService:
@@ -485,7 +523,11 @@ class AutomationService:
         if not SCAN_LOCK.acquire(blocking=False):
             print("Scan skipped: another automation run is already active.")
             return False, "Another scan is already in progress."
-            
+        if not SCAN_FILE_LOCK.acquire(blocking=False):
+            SCAN_LOCK.release()
+            print("Scan skipped: another automation run is active in a different worker process.")
+            return False, "Another scan is already in progress."
+
         started_at_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         job_id = uuid.uuid4().hex
         set_cancel_requested(False)
@@ -762,6 +804,7 @@ class AutomationService:
             )
             return False, f"Exception: {e}"
         finally:
+            SCAN_FILE_LOCK.release()
             try:
                 SCAN_LOCK.release()
             except RuntimeError:

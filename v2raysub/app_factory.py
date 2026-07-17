@@ -2,11 +2,11 @@
 """Flask application factory – creates and configures the app."""
 
 from flask import Flask, redirect, url_for
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from config import Config
 from database import init_db
+from extensions import limiter
 from routes.client import client_bp
 from routes.admin_pages import admin_pages_bp
 from routes.admin_api import admin_api_bp
@@ -20,13 +20,20 @@ def create_app(testing=False):
     app.secret_key = Config.SECRET_KEY
     app.config['PERMANENT_SESSION_LIFETIME'] = Config.PERMANENT_SESSION_LIFETIME
 
-    # Rate limiting
-    limiter = Limiter(
-        app=app,
-        key_func=get_remote_address,
-        default_limits=["200 per day", "50 per hour"],
-        storage_uri="memory://"
-    )
+    # Session cookie hardening (SameSite=Lax blocks cross-site POSTs → CSRF mitigation)
+    app.config['SESSION_COOKIE_HTTPONLY'] = True
+    app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+    app.config['SESSION_COOKIE_SECURE'] = Config.SESSION_COOKIE_SECURE
+
+    # Behind Nginx: resolve real client IP / scheme from X-Forwarded-* headers
+    # (rate limiting per real IP, correct https links in the admin panel)
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
+    # Rate limiting (disabled in tests so repeated logins don't hit the limit)
+    app.config['RATELIMIT_ENABLED'] = not testing
+    limiter.init_app(app)
+    # Exempt from *default* limits only — explicit per-route limits
+    # (e.g. the login route) still apply.
     limiter.exempt(admin_pages_bp)
     limiter.exempt(admin_api_bp)
 

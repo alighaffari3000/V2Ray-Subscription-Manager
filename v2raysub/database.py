@@ -7,7 +7,10 @@ import utils.constants as constants
 
 def get_db():
     """Create and return a new database connection."""
-    conn = sqlite3.connect(constants.DATABASE)
+    # timeout: wait instead of failing with "database is locked" when another
+    # worker/thread is writing; WAL: readers don't block the writer.
+    conn = sqlite3.connect(constants.DATABASE, timeout=15)
+    conn.execute('PRAGMA journal_mode=WAL')
     conn.row_factory = sqlite3.Row
     return conn
 

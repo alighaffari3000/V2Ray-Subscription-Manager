@@ -17,9 +17,9 @@ def get_file_size_formatted(filepath):
         return "0 B"
 
 def get_base_url(request):
-    """دریافت آدرس پایه سابسکریپشن با در نظر گرفتن پروکسی و پروتکل HTTPS"""
-    base_url = request.host_url
-    # اگر پشت پروکسی HTTPS هستیم یا آدرس هاست لوکال نیست، از https استفاده می‌کنیم
-    if request.headers.get('X-Forwarded-Proto') == 'https' or (not request.host.startswith('127.0.0.1') and not request.host.startswith('localhost')):
-        base_url = base_url.replace('http://', 'https://', 1)
-    return base_url
+    """دریافت آدرس پایه سابسکریپشن.
+
+    ProxyFix (در app_factory) پروتکل واقعی را از X-Forwarded-Proto تشخیص می‌دهد؛
+    بنابراین اگر SSL نصب نشده باشد، لینک http می‌ماند و لینک https خراب ساخته نمی‌شود.
+    """
+    return request.host_url

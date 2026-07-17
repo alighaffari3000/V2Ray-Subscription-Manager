@@ -5,12 +5,21 @@ import time
 import threading
 from database import get_setting
 from services.automation_service import AutomationService
+import utils.constants as constants
+from utils.process_lock import InterProcessLock
 
 
 def scheduler_worker(app):
     """Background worker executing the timing loop."""
+    # فقط یک پروسه در کل سیستم باید scheduler را اجرا کند (گونیکورن چند worker
+    # می‌سازد). قفل فایلی تا زنده بودن پروسه نگه داشته می‌شود؛ اگر worker مالک
+    # بمیرد، سیستم‌عامل قفل را آزاد می‌کند و یکی از workerهای دیگر آن را می‌گیرد.
+    lock = InterProcessLock(constants.SCHEDULER_LOCK_FILE)
+    while not lock.acquire(blocking=False):
+        time.sleep(30)
+
     print("Background automation scheduler thread started.")
-    
+
     # Track timings using Python's monotonic clock
     last_discovery = time.monotonic()
     last_health = time.monotonic()
