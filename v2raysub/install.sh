@@ -25,6 +25,18 @@ fi
 
 # متغیر دایرکتوری پروژه
 PROJECT_DIR="/home/v2ray-sub"
+REPO_SLUG="alighaffari3000/V2Ray-Subscription-Manager"
+
+# ── حالت نصب یک‌خطی (bootstrap) ──────────────────────────────────
+# اگر اسکریپت به تنهایی اجرا شده باشد (bash <(curl ...)) و فایل‌های پروژه کنارش
+# نباشند، ابتدا سورس کامل مخزن دانلود و سپس نصب از داخل آن ادامه پیدا می‌کند.
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]:-.}" )" 2>/dev/null && pwd || echo /tmp )"
+if [ ! -f "$SCRIPT_DIR/app_factory.py" ]; then
+    echo -e "${GREEN}⬇️  فایل‌های پروژه یافت نشد؛ در حال دانلود سورس از GitHub...${NC}"
+    TMP_DIR=$(mktemp -d)
+    curl -fsSL "https://github.com/$REPO_SLUG/archive/refs/heads/master.tar.gz" | tar -xz -C "$TMP_DIR"
+    exec bash "$TMP_DIR/V2Ray-Subscription-Manager-master/v2raysub/install.sh"
+fi
 
 # دریافت دامنه و پورت تعاملی
 read -p "🌐 لطفاً آدرس دامنه خود را وارد کنید (مثال: sub.mydomain.com): " DOMAIN
@@ -57,7 +69,6 @@ mkdir -p $PROJECT_DIR
 echo -e "${GREEN}[3/8] کپی فایل‌های پروژه...${NC}"
 
 # کپی فایل‌ها از مسیر فعلی به مسیر پروژه (در صورت متفاوت بودن)
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 if [ "$SCRIPT_DIR" != "$PROJECT_DIR" ]; then
     # کپی فایل‌های وب‌پنل
     cp -r "$SCRIPT_DIR/app.py" "$SCRIPT_DIR/app_factory.py" "$SCRIPT_DIR/config.py" \
@@ -80,9 +91,34 @@ source venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 
-echo -e "${GREEN}[4.5/8] نصب Rust، کامپایل V2RayDAR و نصب Sing-box...${NC}"
-# کامپایل V2RayDAR (فقط اگر سورس موجود باشد؛ Rust هم فقط در همین صورت لازم است)
-if [ -d "$PROJECT_DIR/V2RayDAR-main" ]; then
+echo -e "${GREEN}[4.5/8] آماده‌سازی موتور اسکن V2RayDAR و نصب Sing-box...${NC}"
+
+# ── اول: تلاش برای دانلود باینری از پیش‌ساخته از GitHub Releases ──
+# (ساخته‌شده توسط GitHub Actions؛ سرورهای ضعیف نیازی به کامپایل Rust ندارند)
+V2RAYDAR_READY=0
+if [ "$(uname -m)" = "x86_64" ]; then
+    echo -e "${GREEN}⬇️  در حال دانلود باینری از پیش‌ساخته V2RayDAR...${NC}"
+    if curl -fsSL --retry 2 -o /tmp/v2raydar.download \
+        "https://github.com/$REPO_SLUG/releases/download/v2raydar-latest/v2raydar-linux-amd64"; then
+        chmod +x /tmp/v2raydar.download
+        # صحت اجرا روی همین سیستم (سازگاری glibc) قبل از پذیرفتن باینری
+        if /tmp/v2raydar.download --version >/dev/null 2>&1; then
+            mv /tmp/v2raydar.download /usr/local/bin/v2raydar
+            V2RAYDAR_READY=1
+            echo -e "${GREEN}✅ باینری از پیش‌ساخته نصب شد: $(/usr/local/bin/v2raydar --version 2>/dev/null | head -1)${NC}"
+        else
+            echo -e "${YELLOW}⚠️ باینری دانلودشده روی این سیستم اجرا نشد (احتمالاً glibc قدیمی). کامپایل از سورس انجام می‌شود.${NC}"
+            rm -f /tmp/v2raydar.download
+        fi
+    else
+        echo -e "${YELLOW}⚠️ دانلود باینری ناموفق بود. کامپایل از سورس انجام می‌شود.${NC}"
+    fi
+fi
+
+# ── دوم: کامپایل از سورس فقط اگر باینری آماده در دسترس نبود ──
+if [ "$V2RAYDAR_READY" = "1" ]; then
+    :
+elif [ -d "$PROJECT_DIR/V2RayDAR-main" ]; then
     # V2RayDAR از edition 2024 استفاده می‌کند → حداقل Rust 1.85 لازم است.
     # cargo قدیمی distro (مثلاً 1.75 در Ubuntu 24.04) کافی نیست؛ در آن صورت rustup نصب می‌شود.
     NEED_RUST=1

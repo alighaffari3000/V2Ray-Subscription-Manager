@@ -239,6 +239,7 @@ pub async fn ping_configs(uris: Vec<String>, config: &ProbeConfig) -> Vec<Ranked
             prioritize_stability: false,
             return_configs_asap: false,
             previous_working_keys: std::collections::HashSet::new(),
+            cancel_flag: None,
         };
         let active_results =
             probe_active_batched(candidates_from_ranked(&results), config, None, &stop_policy)
@@ -2476,6 +2477,7 @@ mod tests {
             prioritize_stability,
             return_configs_asap: false,
             previous_working_keys,
+            cancel_flag: None,
         }
     }
 

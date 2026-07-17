@@ -23,22 +23,30 @@ A self-hosted V2Ray/Xray subscription panel that **finds working configs by itse
 
 ## 🚀 Quick Install / نصب سریع
 
-On a fresh **Ubuntu/Debian** VPS, as root:
+On a fresh **Ubuntu/Debian** VPS, as root — one line:
 
-روی یک VPS تازه‌ی اوبونتو یا دبیان، با کاربر root:
+روی یک VPS تازه‌ی اوبونتو یا دبیان، با کاربر root — فقط یک خط:
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/alighaffari3000/V2Ray-Subscription-Manager/master/v2raysub/install.sh)
+```
+
+<details>
+<summary>Alternative: clone first / روش جایگزین: ابتدا clone کنید</summary>
 
 ```bash
 git clone https://github.com/alighaffari3000/V2Ray-Subscription-Manager.git
 cd V2Ray-Subscription-Manager
 sudo bash v2raysub/install.sh
 ```
+</details>
 
 The installer is interactive — it asks for your domain, port, and admin credentials, then handles everything else:
 
 اسکریپت نصب به صورت تعاملی دامنه، پورت و اطلاعات ورود ادمین را می‌پرسد و بقیه‌ی کارها را خودش انجام می‌دهد:
 
 - System packages, Python venv, and dependencies / پکیج‌های سیستمی، محیط مجازی پایتون و پیش‌نیازها
-- Compiles the V2RayDAR scan engine (installs Rust if needed) / کامپایل موتور اسکن V2RayDAR (در صورت نیاز Rust را نصب می‌کند)
+- Downloads the **prebuilt** V2RayDAR scan engine from GitHub Releases; only compiles from source (installing Rust automatically) if the download fails / دانلود باینری **از پیش‌ساخته‌ی** موتور اسکن V2RayDAR از GitHub Releases؛ فقط در صورت شکستِ دانلود، از سورس کامپایل می‌کند (Rust را خودش نصب می‌کند)
 - Installs the sing-box core used for probing / نصب هسته‌ی sing-box برای تست کانفیگ‌ها
 - Nginx reverse proxy + systemd service / پروکسی معکوس Nginx و سرویس systemd
 - Free SSL via Certbot (optional) / گواهی SSL رایگان با Certbot (اختیاری)
@@ -49,7 +57,7 @@ When it finishes you get your panel URL (`https://yourdomain.com/adminpanel`) an
 
 - Ubuntu / Debian VPS with root access / سرور مجازی اوبونتو یا دبیان با دسترسی root
 - A domain pointing to the server (needed for SSL) / یک دامنه که به سرور اشاره کند (برای SSL لازم است)
-- **At least 2 GB RAM** — compiling the Rust engine on a smaller box can fail with an out-of-memory error. Add swap if needed. / **حداقل ۲ گیگابایت رم** — کامپایل موتور Rust روی سرور کوچک‌تر ممکن است به خطای کمبود حافظه بخورد؛ در صورت نیاز swap اضافه کنید.
+- RAM: any size is fine when the prebuilt engine binary downloads successfully (the normal case). **2 GB+ (or swap) is only needed if the installer has to compile the engine from source** — e.g. non-x86_64 servers or very old distros. / رم: اگر باینری از پیش‌ساخته‌ی موتور دانلود شود (حالت عادی) هر مقداری کافی است. **حداقل ۲ گیگ رم (یا swap) فقط وقتی لازم است که نصاب مجبور به کامپایل از سورس شود** — مثلاً سرورهای غیر x86_64 یا توزیع‌های خیلی قدیمی.
 
 ---
 

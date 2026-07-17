@@ -1,0 +1,62 @@
+name: Build V2RayDAR engine
+
+# Builds the Linux binary of the vendored V2RayDAR scan engine and publishes
+# it to a fixed release tag. install.sh downloads this binary so weak VPSes
+# never have to compile Rust themselves (falling back to source build only
+# when the download fails or the binary is incompatible).
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'V2RayDAR-main/**'
+      - '.github/workflows/build-v2raydar.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # ubuntu-22.04 keeps glibc requirements low (2.35) so the binary also
+    # runs on Ubuntu 22.04+ and Debian 12+. Older distros fall back to
+    # compiling from source via install.sh.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            V2RayDAR-main/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('V2RayDAR-main/Cargo.lock') }}
+
+      - name: Build release binary
+        run: cargo build --release --manifest-path V2RayDAR-main/Cargo.toml
+
+      - name: Smoke-test binary
+        run: |
+          V2RayDAR-main/target/release/v2raydar --version
+          cp V2RayDAR-main/target/release/v2raydar v2raydar-linux-amd64
+
+      - name: Publish to fixed release tag
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v2raydar-latest
+          name: V2RayDAR engine (auto-built)
+          body: |
+            Automatically built Linux x86_64 binary of the vendored V2RayDAR scan engine.
+            Downloaded by install.sh so the VPS doesn't need to compile Rust.
+            Built from commit ${{ github.sha }}.
+          files: v2raydar-linux-amd64

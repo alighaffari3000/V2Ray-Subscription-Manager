@@ -45,9 +45,15 @@ A lightweight, high-performance, and secure Flask application to manage V2Ray/Xr
 
 ## 🛠️ Automated Installation / نصب خودکار (لینوکس)
 
-Just run the automated script with root privileges to install and configure everything (Python Virtual Environment, dependencies, Nginx configuration, Systemd daemon, and free SSL Certbot):
+One line on a fresh VPS installs and configures everything (Python venv, dependencies, the V2RayDAR scan engine — prebuilt binary when available, compiled from source otherwise — Nginx, systemd daemon, and free SSL via Certbot):
 
-اسکریپت تعاملی زیر تمام مراحل نصب شامل وب‌سرور Nginx، سرویس سیستم‌دی، دریافت دامنه، پورت، ایجاد متغیرهای امنیتی پنل و نصب خودکار گواهی SSL را به صورت تمام خودکار انجام می‌دهد:
+نصب یک‌خطی روی سرور تازه — تمام مراحل شامل محیط مجازی پایتون، پیش‌نیازها، موتور اسکن V2RayDAR (باینری آماده و در صورت نیاز کامپایل از سورس)، وب‌سرور Nginx، سرویس systemd و گواهی SSL رایگان به صورت خودکار انجام می‌شود:
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/alighaffari3000/V2Ray-Subscription-Manager/master/v2raysub/install.sh)
+```
+
+Or from a local clone / یا از داخل کلون محلی مخزن:
 
 ```bash
 sudo bash install.sh

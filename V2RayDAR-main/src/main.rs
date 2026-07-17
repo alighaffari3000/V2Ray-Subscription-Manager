@@ -188,7 +188,7 @@ async fn main() -> Result<()> {
     let paths = resolve_paths(&cli)?;
 
     if let Some(Commands::Worker(worker_args)) = &cli.command {
-        let mut config = AppConfig::default();
+        let mut config = AppConfig::default_for_first_run();
         apply_runtime_sing_box_path(&mut config);
         
         // Override concurrency configs with CLI arguments
@@ -1268,6 +1268,7 @@ fn probe_stop_policy(
             .filter(|key| current_keys.contains(key.as_str()))
             .cloned()
             .collect(),
+        cancel_flag: None,
     }
 }
 

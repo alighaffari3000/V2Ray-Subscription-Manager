@@ -212,7 +212,7 @@ async fn run_health(input: WorkerInput, config: AppConfig, cancel_flag: std::syn
                 candidate.id = format!("hc-{index}");
                 candidates.push(candidate);
             }
-            Err(err) => {
+            Err(_err) => {
                 // Return failed configs directly if parsing fails
                 candidates.push(Candidate {
                     id: format!("hc-{index}"),
