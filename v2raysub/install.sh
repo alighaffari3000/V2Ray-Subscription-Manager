@@ -201,6 +201,14 @@ if ! command -v sing-box &> /dev/null; then
     fi
 fi
 
+# V2RayDAR only auto-detects sing-box *beside its own executable* on Linux — it
+# does not search PATH — so a sing-box in /usr/bin is invisible to it. Symlink
+# it next to v2raydar (/usr/local/bin) so the engine finds it.
+SING_BOX_BIN="$(command -v sing-box 2>/dev/null || true)"
+if [ -n "$SING_BOX_BIN" ] && [ "$SING_BOX_BIN" != "/usr/local/bin/sing-box" ]; then
+    ln -sf "$SING_BOX_BIN" /usr/local/bin/sing-box
+fi
+
 echo -e "${GREEN}[5/8] Writing .env...${NC}"
 SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
 
