@@ -194,7 +194,9 @@ async fn main() -> Result<()> {
         // Override concurrency configs with CLI arguments
         config.fetch_concurrency = worker_args.fetch_concurrency;
         config.probe.concurrency = worker_args.probe_concurrency;
-        config.probe.process_concurrency = worker_args.probe_process_concurrency;
+        // process_concurrency is Option<usize> (None = unlimited); the CLI arg is a
+        // plain usize with a default, so it always maps to Some.
+        config.probe.process_concurrency = Some(worker_args.probe_process_concurrency);
         
         if active_probe_needs_setup(&config, &paths).await {
             eprintln!("sing-box executable was not found. Please place sing-box/sing-box.exe beside the executable or in PATH.");

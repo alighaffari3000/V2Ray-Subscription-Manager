@@ -11,7 +11,10 @@ __pycache__/
 
 # Rust
 V2RayDAR-main/target/
-V2RayDAR-main/Cargo.lock
+# Cargo.lock IS committed on purpose: v2raydar is a binary, not a library, and
+# CI builds the released binary from it. Without the lockfile every build
+# re-resolves dependencies to their newest semver-compatible versions, so a
+# green build today can break tomorrow with no change on our side.
 
 # Environments & Configs
 .env
