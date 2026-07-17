@@ -209,7 +209,11 @@ class ConfigImporter:
             # Filter healthy candidates
             healthy_configs = []
             for r in results:
-                if r.get('reachable') and r.get('validation') == 'Success' and r.get('latency_ms') is not None:
+                # The engine reports HOW it validated ("active_http" / "tcp_connect"),
+                # not the literal "Success" this once checked for — so every healthy
+                # config was being discarded. `reachable` is the engine's pass flag
+                # (only set when the probe actually succeeded), so key off that.
+                if r.get('reachable') and r.get('latency_ms') is not None:
                     healthy_configs.append(r)
             
             # Sort by latency to import the lowest ping configs first
@@ -297,7 +301,9 @@ class HealthManager:
                 cfg_id = config_row['id']
                 current_failures = config_row['consecutive_failures'] or 0
                 
-                if reachable and validation == 'Success' and latency is not None:
+                # See the discovery import: `reachable` is the engine's pass flag;
+                # the validation string names the method, not a "Success" literal.
+                if reachable and latency is not None:
                     db.execute(
                         '''UPDATE configs SET 
                             last_check = ?, 

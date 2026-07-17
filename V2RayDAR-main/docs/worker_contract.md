@@ -68,7 +68,7 @@ All output is logged to stdout as a single-line or pretty-printed JSON payload. 
       "reachable": true,
       "latency_ms": 120,
       "country_code": "DE",
-      "validation": "Success",
+      "validation": "active_http",
       "error": null,
       "source": "source-name"
     }
@@ -76,6 +76,12 @@ All output is logged to stdout as a single-line or pretty-printed JSON payload. 
   "error": null
 }
 ```
+
+`reachable` is the pass/fail flag — it is `true` only when the probe actually
+succeeded. `validation` names the *method* that produced that verdict
+(`"active_http"` for a full sing-box tunnel check, `"tcp_connect"` for a
+TCP-only check), not a literal `"Success"`. Consumers must gate on `reachable`,
+never on a specific `validation` string.
 
 ### B. Error Output Schema
 ```json
