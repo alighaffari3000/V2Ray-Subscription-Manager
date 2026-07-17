@@ -30,7 +30,36 @@ REPO_SLUG="alighaffari3000/V2Ray-Subscription-Manager"
 # where GitHub's CDN is throttled) hangs the installer forever instead of
 # failing over to the next strategy.
 CONNECT_TIMEOUT=15
+# Short calls (source tarball, scripts) get a hard ceiling.
 DOWNLOAD_MAX_TIME=300
+# The 18 MB binary can crawl at a few KB/s over GitHub's CDN from some regions,
+# so a hard ceiling would guarantee failure. Instead abort only on a *true*
+# stall: under 1 KB/s for 60s straight. A slow-but-moving download keeps going.
+STALL_SPEED_BYTES=1024
+STALL_SECONDS=60
+
+# Download $1 to $2, resuming across retries and tolerating slow-but-alive
+# links. Tries the direct GitHub URL first, then mirrors that proxy GitHub and
+# are often reachable where the CDN is throttled. Prints which one won.
+download_with_mirrors() {
+    local url="$1" out="$2" src
+    # $url is always a github.com path; the mirrors below just prefix it.
+    for src in \
+        "$url" \
+        "https://ghfast.top/$url" \
+        "https://gh-proxy.com/$url" \
+        "https://ghproxy.net/$url"; do
+        echo -e "${GREEN}[*] Trying: ${src}${NC}"
+        # -C - resumes a partial file so retries don't restart from 0%.
+        if curl -fL -C - --connect-timeout "$CONNECT_TIMEOUT" \
+            --speed-limit "$STALL_SPEED_BYTES" --speed-time "$STALL_SECONDS" \
+            --retry 3 --retry-delay 3 --progress-bar -o "$out" "$src"; then
+            return 0
+        fi
+        echo -e "${YELLOW}[!] That source failed; trying the next.${NC}"
+    done
+    return 1
+}
 
 # ── One-line bootstrap ───────────────────────────────────────────
 # When run standalone via `bash <(curl ...)` the project files aren't on disk,
@@ -106,9 +135,9 @@ echo -e "${GREEN}[4.5/8] Setting up the V2RayDAR scan engine and Sing-box...${NC
 V2RAYDAR_READY=0
 if [ "$(uname -m)" = "x86_64" ]; then
     echo -e "${GREEN}[*] Downloading prebuilt V2RayDAR binary (~18 MB)...${NC}"
-    if curl -fL --connect-timeout "$CONNECT_TIMEOUT" --max-time "$DOWNLOAD_MAX_TIME" --retry 2 \
-        --progress-bar -o /tmp/v2raydar.download \
-        "https://github.com/$REPO_SLUG/releases/download/v2raydar-latest/v2raydar-linux-amd64"; then
+    if download_with_mirrors \
+        "https://github.com/$REPO_SLUG/releases/download/v2raydar-latest/v2raydar-linux-amd64" \
+        /tmp/v2raydar.download; then
         chmod +x /tmp/v2raydar.download
         # Verify it actually runs here (glibc compatibility) before trusting it
         if /tmp/v2raydar.download --version >/dev/null 2>&1; then
@@ -232,10 +261,11 @@ server {
 EOF
 
 ln -sf /etc/nginx/sites-available/v2ray-sub /etc/nginx/sites-enabled/
-# Drop the default site when using port 80, to avoid a conflict
-if [ -f /etc/nginx/sites-enabled/default ] && [ "$PORT" = "80" ]; then
-    rm -f /etc/nginx/sites-enabled/default
-fi
+# Always drop nginx's stock default site: it listens on 80 no matter which
+# port we picked, and if anything else already holds 80 it makes the whole
+# nginx process fail to start (bind() ... Address already in use), taking our
+# site down with it.
+rm -f /etc/nginx/sites-enabled/default
 
 nginx -t
 systemctl restart nginx
