@@ -283,6 +283,10 @@ WorkingDirectory=$PROJECT_DIR
 # server tries to create \$HOME/.gunicorn there and errors. Point HOME at the
 # project dir (owned by www-data) so it can.
 Environment=HOME=$PROJECT_DIR
+# Python block-buffers stdout when it's a pipe (systemd), so the app's print()
+# scan logs never reach journald promptly. Force unbuffered so `journalctl -f`
+# shows scan progress live.
+Environment=PYTHONUNBUFFERED=1
 ExecStart=$PROJECT_DIR/venv/bin/gunicorn --workers 3 --bind 127.0.0.1:5000 app:app
 Restart=always
 
