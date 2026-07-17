@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 """Admin HTML page routes (login, dashboard)."""
 
+from hmac import compare_digest
+
 from flask import Blueprint, render_template, request, redirect, url_for, session
 from werkzeug.security import check_password_hash
 
 from config import Config
+from extensions import limiter
 from database import get_setting
 from services.path_service import get_primary_path, get_other_paths
 from services.config_service import get_all_configs_for_admin
@@ -12,7 +15,20 @@ from utils.misc import get_base_url
 
 admin_pages_bp = Blueprint('admin_pages', __name__)
 
+
+def _verify_password(stored, password):
+    """Verify the admin password.
+
+    Supports both a Werkzeug hash (produced by install.sh) and a plaintext
+    value in .env; plaintext is compared in constant time.
+    """
+    if stored.startswith(('pbkdf2:', 'scrypt:', 'argon2')):
+        return check_password_hash(stored, password)
+    return compare_digest(stored.encode('utf-8'), password.encode('utf-8'))
+
+
 @admin_pages_bp.route('/adminpanel/login', methods=['GET', 'POST'])
+@limiter.limit('10 per minute', methods=['POST'])
 def login():
     if session.get('logged_in'):
         return redirect(url_for('admin_pages.admin'))
@@ -24,7 +40,7 @@ def login():
         if not Config.ADMIN_USERNAME or not Config.ADMIN_PASSWORD:
             return render_template('login.html', error='اطلاعات ادمین تنظیم نشده است')
 
-        if username == Config.ADMIN_USERNAME and check_password_hash(Config.ADMIN_PASSWORD, password):
+        if username == Config.ADMIN_USERNAME and _verify_password(Config.ADMIN_PASSWORD, password):
             session['logged_in'] = True
             session.permanent = True
             return redirect(url_for('admin_pages.admin'))

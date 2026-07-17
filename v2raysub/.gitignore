@@ -1,0 +1,15 @@
+# Secrets — never commit
+.env
+
+# Runtime data
+database.db
+database.db-wal
+database.db-shm
+scheduler.lock
+scan.lock
+scan_cancel.flag
+
+# Python
+__pycache__/
+*.pyc
+venv/

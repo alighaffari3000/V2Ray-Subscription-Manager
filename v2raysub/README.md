@@ -116,6 +116,7 @@ sudo systemctl restart nginx
 ├── app_factory.py        # Flask App factory setup / فایل ساخت و پیکربندی برنامه فلاسک
 ├── config.py             # Global Config loader / مدیریت و بارگذاری تنظیمات از .env
 ├── database.py           # SQLite connection & schema helpers / ارتباط با دیتابیس لایت
+├── extensions.py         # Shared Flask extensions (rate limiter) / اکستنشن‌های مشترک فلاسک
 ├── install.sh            # Fully Automated Bash Installer / اسکریپت نصب خودکار سرور لینوکس
 ├── requirements.txt      # Python Dependencies / پیش‌نیازهای پروژه
 ├── v2ray-sub             # Nginx Server block Config / کانفیگ وب‌سرور Nginx
@@ -136,6 +137,7 @@ sudo systemctl restart nginx
 │   ├── constants.py      # Shared system constants / ثوابت عمومی سیستم
 │   ├── config_parser.py  # VMess/VLESS decoders & flag retainers / استخراج‌کننده‌ها و پردازشگرها
 │   ├── user_agent.py     # User-Agent client classification / دسته‌بندی برنامه‌ها
+│   ├── process_lock.py   # Inter-process file lock (gunicorn workers) / قفل فایلی بین‌پروسه‌ای
 │   └── misc.py           # Size and proxy URL helpers / ابزارهای کمکی اندازه و پروکسی
 │
 ├── templates/            # HTML templates / قالب‌های فرانت‌اند

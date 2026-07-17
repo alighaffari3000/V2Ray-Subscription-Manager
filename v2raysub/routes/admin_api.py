@@ -400,10 +400,10 @@ def trigger_automation():
     if mode not in ('discovery', 'health_check'):
         return jsonify({'success': False, 'message': 'حالت اسکن نامعتبر است'})
         
-    from services.automation_service import AutomationService, SCAN_LOCK
+    from services.automation_service import AutomationService, is_scan_active
     import threading
-    
-    if SCAN_LOCK.locked():
+
+    if is_scan_active():
         return jsonify({'success': False, 'message': 'یک اسکن دیگر در حال حاضر در پس‌زمینه در حال اجرا است'})
         
     threading.Thread(
@@ -420,9 +420,9 @@ def cancel_automation():
     if err:
         return err
         
-    from services.automation_service import AutomationService, SCAN_LOCK
-    
-    if not SCAN_LOCK.locked():
+    from services.automation_service import AutomationService, is_scan_active
+
+    if not is_scan_active():
         return jsonify({'success': False, 'message': 'هیچ اسکن فعالی برای لغو کردن وجود ندارد'})
         
     AutomationService.cancel_scan()
