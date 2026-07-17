@@ -47,7 +47,9 @@ if [ -z "$admin_password" ]; then
 fi
 
 echo -e "\n${GREEN}[1/8] نصب پکیج‌های پیش‌نیاز سیستم...${NC}"
-apt update && apt install -y python3 python3-pip python3-venv nginx certbot python3-certbot-nginx
+# build-essential/cmake/pkg-config برای کامپایل V2RayDAR لازم‌اند (rusqlite bundled و aws-lc-rs)
+apt update && apt install -y python3 python3-pip python3-venv nginx certbot python3-certbot-nginx \
+    build-essential cmake pkg-config curl
 
 echo -e "${GREEN}[2/8] ایجاد دایرکتوری پروژه...${NC}"
 mkdir -p $PROJECT_DIR
@@ -59,7 +61,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 if [ "$SCRIPT_DIR" != "$PROJECT_DIR" ]; then
     # کپی فایل‌های وب‌پنل
     cp -r "$SCRIPT_DIR/app.py" "$SCRIPT_DIR/app_factory.py" "$SCRIPT_DIR/config.py" \
-          "$SCRIPT_DIR/database.py" "$SCRIPT_DIR/requirements.txt" \
+          "$SCRIPT_DIR/database.py" "$SCRIPT_DIR/extensions.py" "$SCRIPT_DIR/requirements.txt" \
           "$SCRIPT_DIR/templates" "$SCRIPT_DIR/routes" "$SCRIPT_DIR/services" \
           "$SCRIPT_DIR/utils" "$PROJECT_DIR/"
     # کپی فایل‌های موتور اسکن V2RayDAR داخل مسیر پروژه
@@ -79,21 +81,31 @@ pip install --upgrade pip
 pip install -r requirements.txt
 
 echo -e "${GREEN}[4.5/8] نصب Rust، کامپایل V2RayDAR و نصب Sing-box...${NC}"
-# نصب Rust در صورت عدم وجود cargo
-if ! command -v cargo &> /dev/null; then
-    echo -e "${YELLOW}Rust یافت نشد. در حال نصب Rust...${NC}"
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-    source $HOME/.cargo/env
-fi
-
-# کامپایل V2RayDAR
+# کامپایل V2RayDAR (فقط اگر سورس موجود باشد؛ Rust هم فقط در همین صورت لازم است)
 if [ -d "$PROJECT_DIR/V2RayDAR-main" ]; then
-    echo -e "${GREEN}در حال کامپایل موتور V2RayDAR...${NC}"
+    # V2RayDAR از edition 2024 استفاده می‌کند → حداقل Rust 1.85 لازم است.
+    # cargo قدیمی distro (مثلاً 1.75 در Ubuntu 24.04) کافی نیست؛ در آن صورت rustup نصب می‌شود.
+    NEED_RUST=1
+    if command -v cargo &> /dev/null; then
+        CARGO_MINOR=$(cargo --version 2>/dev/null | awk '{print $2}' | cut -d. -f2)
+        if [ "${CARGO_MINOR:-0}" -ge 85 ]; then
+            NEED_RUST=0
+        else
+            echo -e "${YELLOW}نسخه cargo موجود قدیمی است ($(cargo --version)). نصب Rust جدید با rustup...${NC}"
+        fi
+    fi
+    if [ "$NEED_RUST" = "1" ]; then
+        echo -e "${YELLOW}در حال نصب Rust از طریق rustup...${NC}"
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        source "$HOME/.cargo/env"
+    fi
+
+    echo -e "${GREEN}در حال کامپایل موتور V2RayDAR (ممکن است چند دقیقه طول بکشد)...${NC}"
     cd "$PROJECT_DIR/V2RayDAR-main"
     cargo build --release
     cp target/release/v2raydar /usr/local/bin/v2raydar
     cd $PROJECT_DIR
-    
+
     # تست اجرای باینری موتور
     if command -v v2raydar &> /dev/null; then
         echo -e "${GREEN}🔎 تست اجرای موتور اسکن V2RayDAR با موفقیت انجام شد:${NC}"
@@ -103,10 +115,13 @@ else
     echo -e "${RED}⚠️ پوشه V2RayDAR-main یافت نشد. از باینری‌های عمومی استفاده خواهد شد.${NC}"
 fi
 
-# نصب Sing-box
+# نصب Sing-box — شکست این مرحله نباید کل نصب را متوقف کند
+# (وب‌پنل بدون sing-box هم کار می‌کند؛ فقط پروب سلامت کانفیگ‌ها به آن نیاز دارد)
 if ! command -v sing-box &> /dev/null; then
     echo -e "${GREEN}در حال نصب هسته Sing-box...${NC}"
-    bash -c "$(curl -L https://sing-box.app/install.sh)"
+    if ! bash -c "$(curl -fsSL https://sing-box.app/install.sh)"; then
+        echo -e "${RED}⚠️ نصب Sing-box ناموفق بود. بعداً به صورت دستی نصبش کنید؛ نصب ادامه می‌یابد.${NC}"
+    fi
 fi
 
 echo -e "${GREEN}[5/8] ساخت فایل .env...${NC}"
@@ -156,10 +171,10 @@ server {
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
 
-        # WebSockets support
+        # پروژه WebSocket ندارد؛ ارسال بی‌قید و شرط هدر Connection: upgrade
+        # keep-alive را خراب می‌کرد. HTTP/1.1 برای keep-alive نگه داشته شده است.
         proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
+        proxy_set_header Connection "";
 
         proxy_connect_timeout 60s;
         proxy_send_timeout    60s;
@@ -224,7 +239,15 @@ echo -e "${GREEN}==========================================${NC}"
 echo ""
 
 # ثبت گواهی SSL در صورت درخواست کاربر
-read -p "🔒 آیا می‌خواهید گواهی امنیتی SSL (HTTPS) را با Certbot نصب کنید؟ (y/n): " setup_ssl
+# Certbot برای اعتبارسنجی دامنه به پورت ۸۰ نیاز دارد؛ اگر پنل روی پورت دیگری باشد
+# صدور گواهی شکست می‌خورد، پس از قبل به کاربر اطلاع می‌دهیم.
+if [ "$PORT" != "80" ]; then
+    echo -e "${YELLOW}⚠️ وب‌سرور روی پورت $PORT تنظیم شده است. Certbot برای صدور گواهی به پورت ۸۰ نیاز دارد،"
+    echo -e "   بنابراین نصب خودکار SSL در این حالت پشتیبانی نمی‌شود و از آن صرف‌نظر می‌شود.${NC}"
+    setup_ssl="n"
+else
+    read -p "🔒 آیا می‌خواهید گواهی امنیتی SSL (HTTPS) را با Certbot نصب کنید؟ (y/n): " setup_ssl
+fi
 if [ "$setup_ssl" = "y" ]; then
     echo -e "${GREEN}در حال اجرای Certbot جهت نصب SSL...${NC}"
     if certbot --nginx -d $DOMAIN --non-interactive --agree-tos --email webmaster@$DOMAIN; then
