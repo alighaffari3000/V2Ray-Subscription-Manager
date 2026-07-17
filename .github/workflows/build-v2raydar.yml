@@ -47,28 +47,55 @@ jobs:
 
       - name: Smoke-test binary
         # --version alone would still pass if the worker interface broke, and
-        # the panel talks to the engine only through `worker`. Assert the
-        # subcommand, the flags install.sh passes, and that a real worker run
-        # answers with schema_version 1 JSON on stdout.
+        # the panel talks to the engine only through `worker`. The mock used by
+        # the Python tests ignores argv beyond the mode, so a CLI regression is
+        # invisible there — assert it here instead, against the real binary.
         run: |
-          BIN=V2RayDAR-main/target/release/v2raydar
+          set -euo pipefail
+          BIN="$PWD/V2RayDAR-main/target/release/v2raydar"
           $BIN --version
-          $BIN worker --help
-          $BIN worker discovery --help | grep -q -- --fetch-concurrency
-          $BIN worker discovery --help | grep -q -- --probe-process-concurrency
+
+          # The exact argv services/automation_service.py builds. Without
+          # sing-box the run still exits non-zero, so assert on *why*: a clap
+          # parse error means the CLI no longer accepts the panel's call.
+          set +e
+          err=$(echo '{"schema_version":1,"mode":"discovery","job_id":"ci","sources":[]}' \
+            | $BIN worker discovery --fetch-concurrency 1 --probe-concurrency 1 \
+                   --probe-process-concurrency 1 2>&1 >/dev/null)
+          set -e
+          echo "stderr was: $err"
+          if grep -qiE "unexpected argument|invalid value|unrecognized|error: " <<<"$err"; then
+            echo "::error::CLI rejected the invocation the panel uses"
+            exit 1
+          fi
+          echo "CLI accepts the panel's invocation"
+
+      - name: Verify worker JSON contract end-to-end
+        # Needs sing-box, which the engine requires before probing. Kept in its
+        # own non-blocking step so an outage at sing-box.app can't stop the
+        # binary from being published.
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          BIN="$PWD/V2RayDAR-main/target/release/v2raydar"
+          bash -c "$(curl -fsSL https://sing-box.app/install.sh)" -- --beta || \
+            bash -c "$(curl -fsSL https://sing-box.app/install.sh)"
+          sing-box version
 
           echo '{"schema_version":1,"mode":"discovery","job_id":"ci","sources":[]}' \
             | $BIN worker discovery --fetch-concurrency 1 --probe-concurrency 1 \
                    --probe-process-concurrency 1 > out.json
           cat out.json
-          python3 -c "
+          python3 - <<'PY'
           import json
           d = json.load(open('out.json'))
           assert d['schema_version'] == 1, d
           assert 'success' in d, d
           print('worker contract OK:', d)
-          "
-          cp $BIN v2raydar-linux-amd64
+          PY
+
+      - name: Stage artifact
+        run: cp V2RayDAR-main/target/release/v2raydar v2raydar-linux-amd64
 
       - name: Publish to fixed release tag
         uses: softprops/action-gh-release@v2

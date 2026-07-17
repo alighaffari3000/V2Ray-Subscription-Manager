@@ -133,7 +133,12 @@ enum Commands {
 
 #[derive(Debug, clap::Args, Clone)]
 struct WorkerArgs {
-    #[command(subcommand)]
+    // Positional value, not a subcommand: as a subcommand, clap parses
+    // everything after `discovery` in the subcommand's context, so the
+    // caller's `worker discovery --fetch-concurrency 4` (the invocation the
+    // panel and docs/worker_contract.md use) is rejected as an unexpected
+    // argument. A positional lets the flags follow the mode.
+    #[arg(value_enum)]
     mode: WorkerModeCli,
 
     #[arg(long, default_value_t = 4, help = "Limit concurrent network fetches")]
@@ -146,7 +151,7 @@ struct WorkerArgs {
     probe_process_concurrency: usize,
 }
 
-#[derive(Debug, clap::Subcommand, Clone)]
+#[derive(Debug, clap::ValueEnum, Clone)]
 enum WorkerModeCli {
     Discovery,
     Health,
