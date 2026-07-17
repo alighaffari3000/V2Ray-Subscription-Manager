@@ -38,6 +38,13 @@ DOWNLOAD_MAX_TIME=300
 STALL_SPEED_BYTES=1024
 STALL_SECONDS=60
 
+# True only if some process is already listening on TCP port $1. Used for the
+# interactive port prompt so a taken port produces a re-prompt, not a crash
+# three steps later when nginx fails to bind.
+port_in_use() {
+    ss -tln 2>/dev/null | awk '{print $4}' | grep -qE "[:.]$1\$"
+}
+
 # Download $1 to $2, resuming across retries and tolerating slow-but-alive
 # links. Tries the direct GitHub URL first, then mirrors that proxy GitHub and
 # are often reachable where the CDN is throttled. Prints which one won.
@@ -84,8 +91,52 @@ if [ -z "$DOMAIN" ]; then
     exit 1
 fi
 
-read -p "Nginx port [80]: " PORT
-PORT=${PORT:-80}
+while true; do
+    read -p "Nginx port [443]: " PORT
+    PORT=${PORT:-443}
+    if ! [[ "$PORT" =~ ^[0-9]+$ ]] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
+        echo -e "${RED}[X] Enter a valid port number (1-65535).${NC}"
+        continue
+    fi
+    if port_in_use "$PORT"; then
+        echo -e "${YELLOW}[!] Port $PORT is already in use. Pick a different port.${NC}"
+        continue
+    fi
+    break
+done
+
+echo ""
+echo "HTTPS needs a certificate. Options:"
+echo "  1) I already have one (provide the certificate and key file paths)"
+echo "  2) Get a free one automatically (Let's Encrypt via Certbot)"
+echo "  3) Skip for now (use plain HTTP)"
+read -p "Choose [1/2/3] (default 2): " SSL_CHOICE
+SSL_CHOICE=${SSL_CHOICE:-2}
+
+SSL_MODE="none"
+CERT_PATH=""
+KEY_PATH=""
+case "$SSL_CHOICE" in
+    1)
+        while true; do
+            read -p "Path to the certificate file (fullchain .pem/.crt): " CERT_PATH
+            read -p "Path to the private key file (.pem/.key): " KEY_PATH
+            if [ -f "$CERT_PATH" ] && [ -f "$KEY_PATH" ]; then
+                SSL_MODE="existing"
+                break
+            fi
+            echo -e "${RED}[X] One or both files don't exist. Try again.${NC}"
+        done
+        ;;
+    2)
+        SSL_MODE="auto"
+        echo -e "${YELLOW}    Note: automatic issuance needs port 80 reachable from the internet${NC}"
+        echo -e "${YELLOW}    (briefly, for verification) regardless of the panel port above.${NC}"
+        ;;
+    *)
+        SSL_MODE="none"
+        ;;
+esac
 
 read -p "Admin username [admin]: " admin_username
 admin_username=${admin_username:-admin}
@@ -257,10 +308,42 @@ chmod 600 .env
 echo -e "${GREEN}[6/8] Initializing the database...${NC}"
 python3 -c "from app_factory import create_app; create_app()"
 
-echo -e "${GREEN}[7/8] Configuring Nginx for $DOMAIN...${NC}"
+echo -e "${GREEN}[7/8] Configuring Nginx and SSL for $DOMAIN...${NC}"
+
+if [ "$SSL_MODE" = "auto" ]; then
+    echo -e "${GREEN}[*] Requesting a free certificate from Let's Encrypt...${NC}"
+    # Standalone binds port 80 itself, so anything already on it (nginx's
+    # just-installed default vhost included) must step aside first. The
+    # pre/post hooks are saved into the renewal config so the twice-daily
+    # `certbot renew` timer also frees port 80 for the brief renewal window.
+    systemctl stop nginx 2>/dev/null || true
+    if certbot certonly --standalone -d "$DOMAIN" --non-interactive --agree-tos \
+        --email "webmaster@$DOMAIN" \
+        --pre-hook "systemctl stop nginx" --post-hook "systemctl start nginx"; then
+        CERT_PATH="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
+        KEY_PATH="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
+        echo -e "${GREEN}[OK] Certificate obtained.${NC}"
+    else
+        echo -e "${YELLOW}[!] Certificate request failed (often: port 80 isn't reachable from the${NC}"
+        echo -e "${YELLOW}    internet, or $DOMAIN's DNS doesn't point here yet). Continuing over${NC}"
+        echo -e "${YELLOW}    plain HTTP; retry later with 'certbot certonly --standalone -d $DOMAIN'.${NC}"
+        SSL_MODE="none"
+    fi
+fi
+
+if [ "$SSL_MODE" = "existing" ] || [ "$SSL_MODE" = "auto" ]; then
+    SSL_LISTEN="listen $PORT ssl;
+    ssl_certificate     $CERT_PATH;
+    ssl_certificate_key $KEY_PATH;"
+    # The cookie must never cross an unencrypted connection now that one exists.
+    echo "SESSION_COOKIE_SECURE=1" >> "$PROJECT_DIR/.env"
+else
+    SSL_LISTEN="listen $PORT;"
+fi
+
 cat > /etc/nginx/sites-available/v2ray-sub << EOF
 server {
-    listen $PORT;
+    $SSL_LISTEN
     server_name $DOMAIN;
 
     access_log /var/log/nginx/v2ray-sub-access.log;
@@ -377,31 +460,16 @@ echo -e "${GREEN} Installation complete.${NC}"
 echo -e "${GREEN}==========================================${NC}"
 echo ""
 
-# ── SSL ──
-# Certbot's HTTP-01 challenge needs port 80, so skip it on any other port.
-if [ "$PORT" != "80" ]; then
-    echo -e "${YELLOW}[!] Nginx is on port $PORT. Certbot needs port 80 to validate the${NC}"
-    echo -e "${YELLOW}    domain, so automatic SSL setup is skipped.${NC}"
-    setup_ssl="n"
-else
-    read -p "Install a free SSL certificate (HTTPS) with Certbot? (y/n): " setup_ssl
-fi
-if [ "$setup_ssl" = "y" ]; then
-    echo -e "${GREEN}[*] Running Certbot...${NC}"
-    if certbot --nginx -d $DOMAIN --non-interactive --agree-tos --email webmaster@$DOMAIN; then
-        # With HTTPS live, only send the session cookie over a secure connection
-        echo "SESSION_COOKIE_SECURE=1" >> "$PROJECT_DIR/.env"
-        systemctl restart v2ray-sub
-        SCHEME="https"
-    else
-        echo -e "${YELLOW}[!] Certificate issuance failed. You can run certbot manually later.${NC}"
-        SCHEME="http"
-    fi
+# SSL was already set up (or skipped) back in step 7, before the .env and
+# nginx vhost were written, so the service started with the right config the
+# first time — no second restart needed here.
+if [ "$SSL_MODE" != "none" ]; then
+    SCHEME="https"
 else
     SCHEME="http"
 fi
 
-if [ "$PORT" = "80" ] || [ "$SCHEME" = "https" ]; then
+if { [ "$SCHEME" = "http" ] && [ "$PORT" = "80" ]; } || { [ "$SCHEME" = "https" ] && [ "$PORT" = "443" ]; }; then
     BASE_URL="$SCHEME://$DOMAIN"
 else
     BASE_URL="$SCHEME://$DOMAIN:$PORT"
