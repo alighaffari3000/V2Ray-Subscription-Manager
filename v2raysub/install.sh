@@ -279,6 +279,10 @@ After=network.target
 [Service]
 User=www-data
 WorkingDirectory=$PROJECT_DIR
+# www-data's home is /var/www, which it can't write to; gunicorn 26's control
+# server tries to create \$HOME/.gunicorn there and errors. Point HOME at the
+# project dir (owned by www-data) so it can.
+Environment=HOME=$PROJECT_DIR
 ExecStart=$PROJECT_DIR/venv/bin/gunicorn --workers 3 --bind 127.0.0.1:5000 app:app
 Restart=always
 
