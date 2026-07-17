@@ -1,81 +1,89 @@
 #!/bin/bash
 
-# اسکریپت نصب و راه‌اندازی تمام خودکار سیستم مدیریت سابسکریپشن V2Ray
-# نویسنده: Persian V2 Services
-# تاریخ: 2026
+# Fully automated installer for the V2Ray Subscription Manager.
+# Messages are English-only: Persian text renders unreliably in most terminals
+# (bidi reordering, missing fonts) and made installer output hard to read.
 
 set -e
 
-# رنگ‌ها برای نمایش بهتر
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 echo -e "${GREEN}==========================================${NC}"
-echo -e "${GREEN}    نصب تمام خودکار مدیریت سابسکریپشن V2Ray${NC}"
+echo -e "${GREEN}    V2Ray Subscription Manager - Installer${NC}"
 echo -e "${GREEN}==========================================${NC}"
 echo ""
 
-# بررسی دسترسی root
-if [ "$EUID" -ne 0 ]; then 
-    echo -e "${RED}❌ لطفاً این اسکریپت را با دسترسی root اجرا کنید (sudo)${NC}"
+# Require root
+if [ "$EUID" -ne 0 ]; then
+    echo -e "${RED}[X] Please run this script as root (sudo).${NC}"
     exit 1
 fi
 
-# متغیر دایرکتوری پروژه
 PROJECT_DIR="/home/v2ray-sub"
 REPO_SLUG="alighaffari3000/V2Ray-Subscription-Manager"
 
-# ── حالت نصب یک‌خطی (bootstrap) ──────────────────────────────────
-# اگر اسکریپت به تنهایی اجرا شده باشد (bash <(curl ...)) و فایل‌های پروژه کنارش
-# نباشند، ابتدا سورس کامل مخزن دانلود و سپس نصب از داخل آن ادامه پیدا می‌کند.
+# Every network call is bounded: without these, a stalled connection (common
+# where GitHub's CDN is throttled) hangs the installer forever instead of
+# failing over to the next strategy.
+CONNECT_TIMEOUT=15
+DOWNLOAD_MAX_TIME=300
+
+# ── One-line bootstrap ───────────────────────────────────────────
+# When run standalone via `bash <(curl ...)` the project files aren't on disk,
+# so fetch the source tarball first and re-exec from inside it.
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]:-.}" )" 2>/dev/null && pwd || echo /tmp )"
 if [ ! -f "$SCRIPT_DIR/app_factory.py" ]; then
-    echo -e "${GREEN}⬇️  فایل‌های پروژه یافت نشد؛ در حال دانلود سورس از GitHub...${NC}"
+    echo -e "${GREEN}[*] Project files not found. Downloading source from GitHub...${NC}"
     TMP_DIR=$(mktemp -d)
-    curl -fsSL "https://github.com/$REPO_SLUG/archive/refs/heads/master.tar.gz" | tar -xz -C "$TMP_DIR"
+    if ! curl -fsSL --connect-timeout "$CONNECT_TIMEOUT" --max-time "$DOWNLOAD_MAX_TIME" --retry 2 \
+        "https://github.com/$REPO_SLUG/archive/refs/heads/master.tar.gz" | tar -xz -C "$TMP_DIR"; then
+        echo -e "${RED}[X] Failed to download the project source from GitHub.${NC}"
+        echo -e "${RED}    Check the server's connectivity to github.com and try again.${NC}"
+        exit 1
+    fi
     exec bash "$TMP_DIR/V2Ray-Subscription-Manager-master/v2raysub/install.sh"
 fi
 
-# دریافت دامنه و پورت تعاملی
-read -p "🌐 لطفاً آدرس دامنه خود را وارد کنید (مثال: sub.mydomain.com): " DOMAIN
+# ── Interactive settings ─────────────────────────────────────────
+read -p "Domain name (e.g. sub.mydomain.com): " DOMAIN
 if [ -z "$DOMAIN" ]; then
-    echo -e "${RED}❌ آدرس دامنه نمی‌تواند خالی باشد!${NC}"
+    echo -e "${RED}[X] Domain cannot be empty.${NC}"
     exit 1
 fi
 
-read -p "🔌 پورت اجرای وب‌سرور Nginx (پیش‌فرض: 80): " PORT
+read -p "Nginx port [80]: " PORT
 PORT=${PORT:-80}
 
-read -p "👤 نام کاربری ادمین پنل (پیش‌فرض: admin): " admin_username
+read -p "Admin username [admin]: " admin_username
 admin_username=${admin_username:-admin}
 
-read -sp "🔑 رمز عبور ادمین پنل: " admin_password
+read -sp "Admin password: " admin_password
 echo ""
 if [ -z "$admin_password" ]; then
-    echo -e "${RED}❌ رمز عبور نمی‌تواند خالی باشد!${NC}"
+    echo -e "${RED}[X] Password cannot be empty.${NC}"
     exit 1
 fi
 
-echo -e "\n${GREEN}[1/8] نصب پکیج‌های پیش‌نیاز سیستم...${NC}"
-# build-essential/cmake/pkg-config برای کامپایل V2RayDAR لازم‌اند (rusqlite bundled و aws-lc-rs)
+echo -e "\n${GREEN}[1/8] Installing system packages...${NC}"
+# build-essential/cmake/pkg-config are only needed if we have to compile
+# V2RayDAR from source (rusqlite bundled + aws-lc-rs).
 apt update && apt install -y python3 python3-pip python3-venv nginx certbot python3-certbot-nginx \
     build-essential cmake pkg-config curl
 
-echo -e "${GREEN}[2/8] ایجاد دایرکتوری پروژه...${NC}"
+echo -e "${GREEN}[2/8] Creating project directory...${NC}"
 mkdir -p $PROJECT_DIR
 
-echo -e "${GREEN}[3/8] کپی فایل‌های پروژه...${NC}"
-
-# کپی فایل‌ها از مسیر فعلی به مسیر پروژه (در صورت متفاوت بودن)
+echo -e "${GREEN}[3/8] Copying project files...${NC}"
 if [ "$SCRIPT_DIR" != "$PROJECT_DIR" ]; then
-    # کپی فایل‌های وب‌پنل
     cp -r "$SCRIPT_DIR/app.py" "$SCRIPT_DIR/app_factory.py" "$SCRIPT_DIR/config.py" \
           "$SCRIPT_DIR/database.py" "$SCRIPT_DIR/extensions.py" "$SCRIPT_DIR/requirements.txt" \
           "$SCRIPT_DIR/templates" "$SCRIPT_DIR/routes" "$SCRIPT_DIR/services" \
           "$SCRIPT_DIR/utils" "$PROJECT_DIR/"
-    # کپی فایل‌های موتور اسکن V2RayDAR داخل مسیر پروژه
+    # V2RayDAR sources, used only as a fallback if the prebuilt binary is unusable
     if [ -d "$SCRIPT_DIR/../V2RayDAR-main" ]; then
         cp -r "$SCRIPT_DIR/../V2RayDAR-main" "$PROJECT_DIR/"
     elif [ -d "$SCRIPT_DIR/V2RayDAR-main" ]; then
@@ -85,87 +93,91 @@ fi
 
 cd $PROJECT_DIR
 
-echo -e "${GREEN}[4/8] ایجاد محیط مجازی Python و نصب پیش‌نیازها...${NC}"
+echo -e "${GREEN}[4/8] Creating Python virtualenv and installing dependencies...${NC}"
 python3 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 
-echo -e "${GREEN}[4.5/8] آماده‌سازی موتور اسکن V2RayDAR و نصب Sing-box...${NC}"
+echo -e "${GREEN}[4.5/8] Setting up the V2RayDAR scan engine and Sing-box...${NC}"
 
-# ── اول: تلاش برای دانلود باینری از پیش‌ساخته از GitHub Releases ──
-# (ساخته‌شده توسط GitHub Actions؛ سرورهای ضعیف نیازی به کامپایل Rust ندارند)
+# ── Preferred: download the prebuilt binary (built by GitHub Actions) ──
+# Compiling on a small VPS is slow and can OOM, so only fall back to it.
 V2RAYDAR_READY=0
 if [ "$(uname -m)" = "x86_64" ]; then
-    echo -e "${GREEN}⬇️  در حال دانلود باینری از پیش‌ساخته V2RayDAR...${NC}"
-    if curl -fsSL --retry 2 -o /tmp/v2raydar.download \
+    echo -e "${GREEN}[*] Downloading prebuilt V2RayDAR binary (~18 MB)...${NC}"
+    if curl -fL --connect-timeout "$CONNECT_TIMEOUT" --max-time "$DOWNLOAD_MAX_TIME" --retry 2 \
+        --progress-bar -o /tmp/v2raydar.download \
         "https://github.com/$REPO_SLUG/releases/download/v2raydar-latest/v2raydar-linux-amd64"; then
         chmod +x /tmp/v2raydar.download
-        # صحت اجرا روی همین سیستم (سازگاری glibc) قبل از پذیرفتن باینری
+        # Verify it actually runs here (glibc compatibility) before trusting it
         if /tmp/v2raydar.download --version >/dev/null 2>&1; then
             mv /tmp/v2raydar.download /usr/local/bin/v2raydar
             V2RAYDAR_READY=1
-            echo -e "${GREEN}✅ باینری از پیش‌ساخته نصب شد: $(/usr/local/bin/v2raydar --version 2>/dev/null | head -1)${NC}"
+            echo -e "${GREEN}[OK] Prebuilt engine installed: $(/usr/local/bin/v2raydar --version 2>/dev/null | head -1)${NC}"
         else
-            echo -e "${YELLOW}⚠️ باینری دانلودشده روی این سیستم اجرا نشد (احتمالاً glibc قدیمی). کامپایل از سورس انجام می‌شود.${NC}"
+            echo -e "${YELLOW}[!] Downloaded binary won't run here (likely an older glibc). Building from source instead.${NC}"
             rm -f /tmp/v2raydar.download
         fi
     else
-        echo -e "${YELLOW}⚠️ دانلود باینری ناموفق بود. کامپایل از سورس انجام می‌شود.${NC}"
+        echo -e "${YELLOW}[!] Download failed or timed out. Building from source instead.${NC}"
+        rm -f /tmp/v2raydar.download
     fi
 fi
 
-# ── دوم: کامپایل از سورس فقط اگر باینری آماده در دسترس نبود ──
+# ── Fallback: compile from source ──
 if [ "$V2RAYDAR_READY" = "1" ]; then
     :
 elif [ -d "$PROJECT_DIR/V2RayDAR-main" ]; then
-    # V2RayDAR از edition 2024 استفاده می‌کند → حداقل Rust 1.85 لازم است.
-    # cargo قدیمی distro (مثلاً 1.75 در Ubuntu 24.04) کافی نیست؛ در آن صورت rustup نصب می‌شود.
+    echo -e "${YELLOW}[!] Falling back to a source build. This takes several minutes and${NC}"
+    echo -e "${YELLOW}    needs ~2 GB of RAM; add swap first if this server has less.${NC}"
+
+    # V2RayDAR uses edition 2024, which needs Rust >= 1.85. The distro cargo
+    # (1.75 on Ubuntu 24.04) is too old, so install rustup in that case.
     NEED_RUST=1
     if command -v cargo &> /dev/null; then
         CARGO_MINOR=$(cargo --version 2>/dev/null | awk '{print $2}' | cut -d. -f2)
         if [ "${CARGO_MINOR:-0}" -ge 85 ]; then
             NEED_RUST=0
         else
-            echo -e "${YELLOW}نسخه cargo موجود قدیمی است ($(cargo --version)). نصب Rust جدید با rustup...${NC}"
+            echo -e "${YELLOW}[!] Installed cargo is too old ($(cargo --version)). Installing Rust via rustup...${NC}"
         fi
     fi
     if [ "$NEED_RUST" = "1" ]; then
-        echo -e "${YELLOW}در حال نصب Rust از طریق rustup...${NC}"
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        echo -e "${YELLOW}[*] Installing Rust via rustup...${NC}"
+        curl --proto '=https' --tlsv1.2 -sSf --connect-timeout "$CONNECT_TIMEOUT" https://sh.rustup.rs | sh -s -- -y
         source "$HOME/.cargo/env"
     fi
 
-    echo -e "${GREEN}در حال کامپایل موتور V2RayDAR (ممکن است چند دقیقه طول بکشد)...${NC}"
+    echo -e "${GREEN}[*] Compiling the V2RayDAR engine...${NC}"
     cd "$PROJECT_DIR/V2RayDAR-main"
     cargo build --release
     cp target/release/v2raydar /usr/local/bin/v2raydar
     cd $PROJECT_DIR
 
-    # تست اجرای باینری موتور
     if command -v v2raydar &> /dev/null; then
-        echo -e "${GREEN}🔎 تست اجرای موتور اسکن V2RayDAR با موفقیت انجام شد:${NC}"
-        v2raydar --version || v2raydar worker --help || true
+        echo -e "${GREEN}[OK] Engine built: $(v2raydar --version 2>/dev/null | head -1)${NC}"
     fi
 else
-    echo -e "${RED}⚠️ پوشه V2RayDAR-main یافت نشد. از باینری‌های عمومی استفاده خواهد شد.${NC}"
+    echo -e "${RED}[!] V2RayDAR sources not found and no prebuilt binary available.${NC}"
+    echo -e "${RED}    Automatic scanning will not work until an engine is installed.${NC}"
 fi
 
-# نصب Sing-box — شکست این مرحله نباید کل نصب را متوقف کند
-# (وب‌پنل بدون sing-box هم کار می‌کند؛ فقط پروب سلامت کانفیگ‌ها به آن نیاز دارد)
+# Sing-box is only needed for probing; a failure here must not abort the install.
 if ! command -v sing-box &> /dev/null; then
-    echo -e "${GREEN}در حال نصب هسته Sing-box...${NC}"
-    if ! bash -c "$(curl -fsSL https://sing-box.app/install.sh)"; then
-        echo -e "${RED}⚠️ نصب Sing-box ناموفق بود. بعداً به صورت دستی نصبش کنید؛ نصب ادامه می‌یابد.${NC}"
+    echo -e "${GREEN}[*] Installing the Sing-box core...${NC}"
+    if ! bash -c "$(curl -fsSL --connect-timeout "$CONNECT_TIMEOUT" --max-time "$DOWNLOAD_MAX_TIME" https://sing-box.app/install.sh)"; then
+        echo -e "${YELLOW}[!] Sing-box installation failed. The panel still works; install it later${NC}"
+        echo -e "${YELLOW}    to enable config health probing. Continuing.${NC}"
     fi
 fi
 
-echo -e "${GREEN}[5/8] ساخت فایل .env...${NC}"
+echo -e "${GREEN}[5/8] Writing .env...${NC}"
 SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
 
-# Hash the admin password using Werkzeug so check_password_hash works at login.
-# The password is passed via an environment variable (NOT string interpolation)
-# so special characters like ' or $ cannot break or inject into the command.
+# Hash the admin password with Werkzeug so check_password_hash works at login.
+# Passed via an environment variable (not string interpolation) so characters
+# like ' or $ cannot break the command or inject code.
 HASHED_PASSWORD=$(ADMIN_PW="$admin_password" python3 -c "import os; from werkzeug.security import generate_password_hash; print(generate_password_hash(os.environ['ADMIN_PW']))")
 
 cat > .env << EOF
@@ -175,10 +187,10 @@ SECRET_KEY=$SECRET_KEY
 EOF
 chmod 600 .env
 
-echo -e "${GREEN}[6/8] راه‌اندازی پایگاه داده...${NC}"
+echo -e "${GREEN}[6/8] Initializing the database...${NC}"
 python3 -c "from app_factory import create_app; create_app()"
 
-echo -e "${GREEN}[7/8] پیکربندی و راه‌اندازی Nginx برای دامنه $DOMAIN...${NC}"
+echo -e "${GREEN}[7/8] Configuring Nginx for $DOMAIN...${NC}"
 cat > /etc/nginx/sites-available/v2ray-sub << EOF
 server {
     listen $PORT;
@@ -207,8 +219,8 @@ server {
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
 
-        # پروژه WebSocket ندارد؛ ارسال بی‌قید و شرط هدر Connection: upgrade
-        # keep-alive را خراب می‌کرد. HTTP/1.1 برای keep-alive نگه داشته شده است.
+        # No WebSocket endpoints here; sending "Connection: upgrade"
+        # unconditionally broke upstream keep-alive. HTTP/1.1 is kept for it.
         proxy_http_version 1.1;
         proxy_set_header Connection "";
 
@@ -220,7 +232,7 @@ server {
 EOF
 
 ln -sf /etc/nginx/sites-available/v2ray-sub /etc/nginx/sites-enabled/
-# غیرفعال کردن سایت پیش‌فرض در صورت استفاده از پورت 80 برای جلوگیری از تداخل
+# Drop the default site when using port 80, to avoid a conflict
 if [ -f /etc/nginx/sites-enabled/default ] && [ "$PORT" = "80" ]; then
     rm -f /etc/nginx/sites-enabled/default
 fi
@@ -228,7 +240,7 @@ fi
 nginx -t
 systemctl restart nginx
 
-echo -e "${GREEN}[8/8] راه‌اندازی سرویس daemon (systemd) پروژه...${NC}"
+echo -e "${GREEN}[8/8] Installing the systemd service...${NC}"
 cat > /etc/systemd/system/v2ray-sub.service << EOF
 [Unit]
 Description=V2Ray Subscription Manager
@@ -244,7 +256,7 @@ Restart=always
 WantedBy=multi-user.target
 EOF
 
-# تنظیم پرمیشن‌ها برای مالک www-data جهت مدیریت دیتابیس
+# www-data must own the project so it can write the database and lock files
 chown -R www-data:www-data $PROJECT_DIR
 chmod -R 755 $PROJECT_DIR
 if [ -f "$PROJECT_DIR/.env" ]; then
@@ -258,49 +270,57 @@ systemctl daemon-reload
 systemctl enable v2ray-sub
 systemctl restart v2ray-sub
 
-# بررسی وضعیت اجرای سرویس
 sleep 2
 if systemctl is-active v2ray-sub > /dev/null; then
-    echo -e "${GREEN}✅ سرویس v2ray-sub با موفقیت راه‌اندازی شد و در حال اجرا است.${NC}"
+    echo -e "${GREEN}[OK] Service v2ray-sub is running.${NC}"
 else
-    echo -e "${RED}❌ خطای بحرانی: سرویس v2ray-sub با خطا مواجه شد و بالا نیامد! لاگ‌های زیر را بررسی کنید:${NC}"
+    echo -e "${RED}[X] Service v2ray-sub failed to start. Recent logs:${NC}"
     journalctl -u v2ray-sub -n 20 --no-pager
     exit 1
 fi
 
 echo ""
 echo -e "${GREEN}==========================================${NC}"
-echo -e "${GREEN}🏆 نصب و راه‌اندازی سیستم با موفقیت به پایان رسید!${NC}"
+echo -e "${GREEN} Installation complete.${NC}"
 echo -e "${GREEN}==========================================${NC}"
 echo ""
 
-# ثبت گواهی SSL در صورت درخواست کاربر
-# Certbot برای اعتبارسنجی دامنه به پورت ۸۰ نیاز دارد؛ اگر پنل روی پورت دیگری باشد
-# صدور گواهی شکست می‌خورد، پس از قبل به کاربر اطلاع می‌دهیم.
+# ── SSL ──
+# Certbot's HTTP-01 challenge needs port 80, so skip it on any other port.
 if [ "$PORT" != "80" ]; then
-    echo -e "${YELLOW}⚠️ وب‌سرور روی پورت $PORT تنظیم شده است. Certbot برای صدور گواهی به پورت ۸۰ نیاز دارد،"
-    echo -e "   بنابراین نصب خودکار SSL در این حالت پشتیبانی نمی‌شود و از آن صرف‌نظر می‌شود.${NC}"
+    echo -e "${YELLOW}[!] Nginx is on port $PORT. Certbot needs port 80 to validate the${NC}"
+    echo -e "${YELLOW}    domain, so automatic SSL setup is skipped.${NC}"
     setup_ssl="n"
 else
-    read -p "🔒 آیا می‌خواهید گواهی امنیتی SSL (HTTPS) را با Certbot نصب کنید؟ (y/n): " setup_ssl
+    read -p "Install a free SSL certificate (HTTPS) with Certbot? (y/n): " setup_ssl
 fi
 if [ "$setup_ssl" = "y" ]; then
-    echo -e "${GREEN}در حال اجرای Certbot جهت نصب SSL...${NC}"
+    echo -e "${GREEN}[*] Running Certbot...${NC}"
     if certbot --nginx -d $DOMAIN --non-interactive --agree-tos --email webmaster@$DOMAIN; then
-        # با فعال شدن HTTPS، کوکی سشن فقط روی اتصال امن ارسال شود
+        # With HTTPS live, only send the session cookie over a secure connection
         echo "SESSION_COOKIE_SECURE=1" >> "$PROJECT_DIR/.env"
         systemctl restart v2ray-sub
+        SCHEME="https"
     else
-        echo -e "${RED}⚠️ صدور گواهی با خطا مواجه شد. لطفا بعدا به صورت دستی اقدام کنید.${NC}"
+        echo -e "${YELLOW}[!] Certificate issuance failed. You can run certbot manually later.${NC}"
+        SCHEME="http"
     fi
+else
+    SCHEME="http"
+fi
+
+if [ "$PORT" = "80" ] || [ "$SCHEME" = "https" ]; then
+    BASE_URL="$SCHEME://$DOMAIN"
+else
+    BASE_URL="$SCHEME://$DOMAIN:$PORT"
 fi
 
 echo ""
-echo -e "${GREEN}اطلاعات دسترسی به پنل مدیریت:${NC}"
-echo -e "  URL:       ${YELLOW}http://$DOMAIN/adminpanel${NC} (یا https در صورت نصب SSL)"
+echo -e "${GREEN}Admin panel:${NC}"
+echo -e "  URL:       ${YELLOW}$BASE_URL/adminpanel${NC}"
 echo -e "  Username:  ${YELLOW}$admin_username${NC}"
-echo -e "  Password:  ${YELLOW}[همان رمزی که انتخاب کردید]${NC}"
+echo -e "  Password:  ${YELLOW}[the password you chose]${NC}"
 echo ""
-echo -e "${GREEN}لینک سابسکریپشن فعال:${NC}"
-echo -e "  Subscription URL: ${YELLOW}http://$DOMAIN/sub/freeconfigs${NC}"
+echo -e "${GREEN}Subscription link:${NC}"
+echo -e "  ${YELLOW}$BASE_URL/sub/freeconfigs${NC}"
 echo "=========================================="
