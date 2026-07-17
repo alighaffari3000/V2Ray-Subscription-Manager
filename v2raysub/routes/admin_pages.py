@@ -83,7 +83,8 @@ def admin():
     max_new_configs_per_scan = get_setting('max_new_configs_per_scan', '10')
     failure_threshold = get_setting('failure_threshold', '2')
     cleanup_policy = get_setting('cleanup_policy', 'disable')
-    
+    early_stop_enabled = get_setting('early_stop_enabled', '1')
+
     db.close()
 
     return render_template(
@@ -106,5 +107,6 @@ def admin():
         max_active_configs=max_active_configs,
         max_new_configs_per_scan=max_new_configs_per_scan,
         failure_threshold=failure_threshold,
-        cleanup_policy=cleanup_policy
+        cleanup_policy=cleanup_policy,
+        early_stop_enabled=early_stop_enabled
     )

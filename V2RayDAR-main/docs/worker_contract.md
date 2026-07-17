@@ -20,9 +20,17 @@ All inputs passed to the worker must be serialized as UTF-8 JSON.
       "url": "https://example.com/sub",
       "priority": 100
     }
-  ]
+  ],
+  "scan_all": false,
+  "target_count": 10
 }
 ```
+
+`scan_all` and `target_count` are optional early-stop controls. When `scan_all`
+is `false` (or omitted) and `target_count` is set, probing halts as soon as that
+many reachable configs are found instead of testing every candidate — a large
+saving for big subscriptions. Set `scan_all` to `true` to force a full scan.
+Omitting both probes every candidate.
 
 ### B. Health Check Request Schema
 ```json

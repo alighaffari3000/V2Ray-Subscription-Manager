@@ -19,6 +19,11 @@ pub struct WorkerInput {
     pub job_id: String,
     pub sources: Option<Vec<InputSource>>,
     pub configs: Option<Vec<InputConfig>>,
+    // Discovery early-stop controls (both optional; absent = scan everything).
+    // When `scan_all` is false and `target_count` is set, probing halts as soon
+    // as that many reachable configs are found instead of testing all of them.
+    pub scan_all: Option<bool>,
+    pub target_count: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -184,10 +189,21 @@ async fn run_discovery(input: WorkerInput, config: AppConfig, cancel_flag: std::
         return Ok(Vec::new());
     }
 
-    // Probe the candidates
+    // Probe the candidates. When the caller asks for early stop (scan_all=false)
+    // and gives a target, halt once that many reachable configs are found rather
+    // than probing every candidate — a large saving for big subscriptions.
+    let scan_all = input.scan_all.unwrap_or(false);
+    let top_n = if scan_all {
+        candidates.len()
+    } else {
+        input
+            .target_count
+            .map(|n| n.clamp(1, candidates.len()))
+            .unwrap_or(candidates.len())
+    };
     let stop_policy = ProbeStopPolicy {
-        scan_all_configs: true,
-        top_n: candidates.len(),
+        scan_all_configs: scan_all,
+        top_n,
         prioritize_stability: false,
         return_configs_asap: false,
         previous_working_keys: HashSet::new(),
@@ -195,7 +211,7 @@ async fn run_discovery(input: WorkerInput, config: AppConfig, cancel_flag: std::
     };
 
     let ranked = probe_candidates(candidates, &worker_config.probe, None, &stop_policy).await;
-    
+
     Ok(map_ranked_results(ranked))
 }
 

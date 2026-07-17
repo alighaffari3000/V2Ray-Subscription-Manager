@@ -380,6 +380,13 @@ def save_automation_settings():
             if key in data:
                 val = str(data[key]).strip()
                 db.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', (key, val))
+        # early_stop_enabled is a checkbox; an unchecked box is omitted from the
+        # form entirely, so only touch it on a real settings-form submit and
+        # treat absence there as "off".
+        if any(k in data for k in ['scan_interval', 'max_active_configs', 'early_stop_enabled']):
+            raw = str(data.get('early_stop_enabled', '')).strip().lower()
+            es_val = '1' if raw in ('1', 'true', 'on', 'yes') else '0'
+            db.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', ('early_stop_enabled', es_val))
         db.commit()
         return jsonify({'success': True, 'message': 'تنظیمات اتوماسیون با موفقیت ذخیره شد'})
     except Exception as e:

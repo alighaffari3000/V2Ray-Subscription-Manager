@@ -590,6 +590,23 @@ class AutomationService:
                     "job_id": job_id,
                     "sources": sources_list
                 }
+
+                # Early stop: don't probe an entire 1000-config source when we
+                # only need a handful. Target = how many we could actually
+                # import this scan (min of the per-scan cap and free capacity),
+                # so the engine halts once that many reachable configs are found.
+                # Enabled by default; the toggle lets the user force a full scan.
+                early_stop = get_setting('early_stop_enabled', '1') == '1'
+                if early_stop:
+                    max_new = int(get_setting('max_new_configs_per_scan', '10'))
+                    available_capacity = max(0, max_active - active_count)
+                    target_count = min(max_new, available_capacity)
+                    if target_count > 0:
+                        input_data["scan_all"] = False
+                        input_data["target_count"] = target_count
+                else:
+                    input_data["scan_all"] = True
+
                 input_json = json.dumps(input_data)
                 
                 fetch_c = get_validated_concurrency('fetch_concurrency', 4)

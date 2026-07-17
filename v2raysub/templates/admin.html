@@ -1064,6 +1064,15 @@
                             <input type="number" id="setting-max-new" name="max_new_configs_per_scan" value="{{ max_new_configs_per_scan }}" required min="1" style="width: 100%; padding: 8px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--input-bg); color: var(--text-color);">
                         </div>
                         <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" id="setting-early-stop" name="early_stop_enabled" value="1" {% if early_stop_enabled == '1' %}checked{% endif %} style="width: auto;">
+                                توقف زودهنگام اسکن پس از یافتن کانفیگ‌های کافی
+                            </label>
+                            <small style="color: var(--text-muted, #888); display: block; margin-top: 4px;">
+                                با روشن بودن، اسکن به‌محض یافتن به تعداد «حداکثر کانفیگ جدید در هر اسکن» متوقف می‌شود و همه‌ی کانفیگ‌های منبع بررسی نمی‌شوند (سریع‌تر). برای بررسی کامل همه‌ی کانفیگ‌ها خاموشش کنید.
+                            </small>
+                        </div>
+                        <div class="form-group">
                             <label for="setting-failure-threshold">تعداد خطاهای متوالی جهت غیرفعال‌سازی کانفیگ:</label>
                             <input type="number" id="setting-failure-threshold" name="failure_threshold" value="{{ failure_threshold }}" required min="1" style="width: 100%; padding: 8px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--input-bg); color: var(--text-color);">
                         </div>
