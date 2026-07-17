@@ -202,11 +202,23 @@ if ! command -v sing-box &> /dev/null; then
 fi
 
 # V2RayDAR only auto-detects sing-box *beside its own executable* on Linux — it
-# does not search PATH — so a sing-box in /usr/bin is invisible to it. Symlink
-# it next to v2raydar (/usr/local/bin) so the engine finds it.
+# does not search PATH — so a sing-box in /usr/bin is invisible to it. The panel
+# (locate_v2raydar) prefers the in-project build over /usr/local/bin, so put a
+# sing-box symlink next to every v2raydar we may have placed.
 SING_BOX_BIN="$(command -v sing-box 2>/dev/null || true)"
-if [ -n "$SING_BOX_BIN" ] && [ "$SING_BOX_BIN" != "/usr/local/bin/sing-box" ]; then
-    ln -sf "$SING_BOX_BIN" /usr/local/bin/sing-box
+if [ -n "$SING_BOX_BIN" ]; then
+    for engine_dir in \
+        /usr/local/bin \
+        "$PROJECT_DIR/V2RayDAR-main/target/release" \
+        "$PROJECT_DIR/V2RayDAR-main/target/debug"; do
+        # Only bother where a v2raydar actually sits (or /usr/local/bin, the
+        # prebuilt destination), and never symlink a file onto itself.
+        if [ -x "$engine_dir/v2raydar" ] || [ "$engine_dir" = "/usr/local/bin" ]; then
+            if [ "$SING_BOX_BIN" != "$engine_dir/sing-box" ]; then
+                ln -sf "$SING_BOX_BIN" "$engine_dir/sing-box"
+            fi
+        fi
+    done
 fi
 
 echo -e "${GREEN}[5/8] Writing .env...${NC}"
