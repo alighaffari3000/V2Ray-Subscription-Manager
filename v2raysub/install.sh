@@ -205,7 +205,25 @@ fi
 # does not search PATH — so a sing-box in /usr/bin is invisible to it. The panel
 # (locate_v2raydar) prefers the in-project build over /usr/local/bin, so put a
 # sing-box symlink next to every v2raydar we may have placed.
-SING_BOX_BIN="$(command -v sing-box 2>/dev/null || true)"
+#
+# Always drop any symlink we may have created here on a prior run first, then
+# locate the real binary by searching only standard system directories —
+# never /usr/local/bin, which is where *we* place our own symlink. On a re-run,
+# `command -v sing-box` would otherwise resolve to our own (possibly broken)
+# symlink there, since /usr/local/bin precedes /usr/bin in PATH; symlinking
+# that onto itself makes /usr/local/bin/sing-box point to itself — an infinite
+# loop that breaks every scan with "not found". Searching only the real system
+# paths is idempotent no matter how many times this script runs.
+rm -f /usr/local/bin/sing-box \
+    "$PROJECT_DIR/V2RayDAR-main/target/release/sing-box" \
+    "$PROJECT_DIR/V2RayDAR-main/target/debug/sing-box" 2>/dev/null
+SING_BOX_BIN=""
+for dir in /usr/bin /usr/sbin /bin /sbin /usr/local/sbin; do
+    if [ -x "$dir/sing-box" ]; then
+        SING_BOX_BIN="$dir/sing-box"
+        break
+    fi
+done
 if [ -n "$SING_BOX_BIN" ]; then
     for engine_dir in \
         /usr/local/bin \
