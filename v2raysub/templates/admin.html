@@ -608,6 +608,71 @@
             padding: 10px;
             font-size: 13px;
         }
+
+        /* ── Main top-level tab navigation ───────────────────────── */
+        .main-tabs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            background: var(--card-bg);
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            padding: 6px;
+            margin-bottom: 30px;
+            position: sticky;
+            top: 10px;
+            z-index: 20;
+        }
+        .main-tab {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 18px;
+            border: none;
+            background: transparent;
+            color: var(--text-color);
+            opacity: 0.6;
+            font-family: inherit;
+            font-size: 15px;
+            font-weight: 500;
+            cursor: pointer;
+            border-radius: 8px;
+            white-space: nowrap;
+            transition: background 0.2s, opacity 0.2s, color 0.2s;
+        }
+        .main-tab:hover {
+            opacity: 1;
+            background: var(--th-bg);
+        }
+        .main-tab.active {
+            opacity: 1;
+            color: #fff;
+            background: linear-gradient(135deg, var(--header-bg-start) 0%, var(--header-bg-end) 100%);
+        }
+        .main-tab .tab-count {
+            font-size: 12px;
+            font-weight: 700;
+            background: rgba(0, 0, 0, 0.12);
+            padding: 1px 8px;
+            border-radius: 10px;
+        }
+        .main-tab.active .tab-count {
+            background: rgba(255, 255, 255, 0.25);
+        }
+        .tab-panel {
+            display: none;
+        }
+        .tab-panel.active {
+            display: block;
+            animation: tabfade 0.2s ease-out;
+        }
+        @keyframes tabfade {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: none; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .tab-panel.active { animation: none; }
+        }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -628,6 +693,17 @@
     </div>
 
     <div class="container">
+        <nav class="main-tabs" role="tablist">
+            <button class="main-tab active" id="mtab-dashboard" role="tab" onclick="switchTab('dashboard', this)">📊 داشبورد</button>
+            <button class="main-tab" id="mtab-users" role="tab" onclick="switchTab('users', this)">👥 کاربران <span class="tab-count">{{ total_users }}</span></button>
+            <button class="main-tab" id="mtab-configs" role="tab" onclick="switchTab('configs', this)">📁 کانفیگ‌ها <span class="tab-count">{{ total_configs }}</span></button>
+            <button class="main-tab" id="mtab-automation" role="tab" onclick="switchTab('automation', this)">🤖 اسکن خودکار</button>
+            <button class="main-tab" id="mtab-settings" role="tab" onclick="switchTab('settings', this)">⚙️ تنظیمات</button>
+            <button class="main-tab" id="mtab-logs" role="tab" onclick="switchTab('logs', this)">📈 لاگ‌ها</button>
+        </nav>
+
+        <!-- ═══ داشبورد ═══ -->
+        <div class="tab-panel active" id="panel-dashboard" role="tabpanel">
         <!-- آمار اصلی -->
         <h2 style="font-size: 18px; margin-bottom: 15px;">📊 آمار کلی سیستم</h2>
         <div class="stats-grid">
@@ -801,79 +877,55 @@
                 </div>
             </div>
         </div>
+        </div><!-- /panel-dashboard -->
 
+        <!-- ═══ تنظیمات ═══ -->
+        <div class="tab-panel" id="panel-settings" role="tabpanel">
         <div class="card">
-            <h2 class="card-title">⚙️ تنظیمات لینک سابسکریپشن (Subscription Settings)</h2>
-            <div class="settings-grid">
-                <!-- ستون مدیریت مسیرها -->
-                <div>
-                    <div class="subscription-link" style="margin-bottom: 20px;">
-                        <p><strong>آدرس فعال فعلی (Current URL):</strong></p>
-                        <code id="sub-link" style="font-weight: bold; color: #667eea; cursor: pointer;" onclick="copySubLink()" title="برای کپی کلیک کنید">{{ base_url }}sub/{{ primary_path }}</code>
-                        <button class="copy-btn" onclick="copySubLink()" style="margin-top: 10px; padding: 8px 15px; font-size: 12px; display: block;">📋 کپی لینک سابسکریپشن</button>
+            <h2 class="card-title">⚙️ تنظیمات</h2>
+
+            <!-- لینک عمومی -->
+            <div class="subscription-link" style="margin-bottom: 25px;">
+                <p><strong>لینک عمومی (Public / Free link):</strong></p>
+                <code id="sub-link" style="font-weight: bold; color: #667eea; cursor: pointer;" onclick="copySubLink()" title="برای کپی کلیک کنید">{{ base_url }}sub/{{ primary_path }}</code>
+                <button class="copy-btn" onclick="copySubLink()" style="margin-top: 10px; padding: 8px 15px; font-size: 12px; display: block;">📋 کپی لینک عمومی</button>
+                <small style="color: #888; display: block; margin-top: 8px;">این لینک همیشه‌فعال است و برای همه‌ی کاربران یکسان است. برای اشتراک‌های زمان‌دار و اختصاصی از تب «کاربران» استفاده کنید.</small>
+            </div>
+
+            <!-- فرمت خروجی و ترتیب -->
+            <div class="format-selector" style="display: flex; flex-direction: column; gap: 15px; align-items: stretch;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+                    <label>فرمت خروجی سابسکریپشن:</label>
+                    <div class="radio-group">
+                        <label>
+                            <input type="radio" name="format" value="base64" {% if output_format=='base64' %}checked{% endif %} onchange="changeFormat('base64')">
+                            Base64
+                        </label>
+                        <label>
+                            <input type="radio" name="format" value="plain" {% if output_format=='plain' %}checked{% endif %} onchange="changeFormat('plain')">
+                            متن ساده
+                        </label>
                     </div>
-
-                    <form id="path-settings-form" onsubmit="saveCustomPath(event)">
-                        <div class="form-group" style="margin-bottom: 10px;">
-                            <label for="custom-path">تغییر مسیر اصلی (Primary Path):</label>
-                            <div class="path-input-group">
-                                <input type="text" id="custom-path" name="path" placeholder="مثال: vip" value="{{ primary_path }}" required>
-                                <button type="button" class="btn btn-secondary" onclick="generateRandomPath()">🎲 مسیر تصادفی</button>
-                                <button type="submit" class="btn btn-primary" style="padding: 10px 15px;">💾 ذخیره</button>
-                            </div>
-                            <small style="color: #888; display: block; margin-top: 5px;">فقط حروف انگلیسی و اعداد بین ۳ تا ۳۲ کاراکتر مجاز هستند.</small>
-                        </div>
-                    </form>
                 </div>
-
-                <!-- ستون مسیرهای اضافی و سابق -->
-                <div>
-                    <h3 style="font-size: 15px; margin-bottom: 10px; border-bottom: 1px solid var(--border-color); padding-bottom: 5px;">🔗 مسیرهای سابسکریپشن (Subscription Paths)</h3>
-                    <div class="table-container">
-                        <table class="sub-paths-table">
-                            <thead>
-                                <tr>
-                                    <th>مسیر (Path)</th>
-                                    <th width="80" style="text-align: center;">اصلی (Primary)</th>
-                                    <th width="80" style="text-align: center;">روشن (Enabled)</th>
-                                    <th width="140" style="text-align: center;">عملیات (Actions)</th>
-                                </tr>
-                            </thead>
-                            <tbody id="sub-paths-tbody">
-                                <tr>
-                                    <td style="direction: ltr;">/sub/{{ primary_path }}</td>
-                                    <td style="text-align: center;"><span class="badge badge-vless" style="padding: 2px 8px; font-size: 10px;">بله</span></td>
-                                    <td style="text-align: center;"><span class="badge badge-vless" style="padding: 2px 8px; font-size: 10px;">فعال</span></td>
-                                    <td style="text-align: center; opacity: 0.5; font-size: 11px;">مسیر اصلی غیرقابل تغییر</td>
-                                </tr>
-                                {% for p in other_paths %}
-                                <tr>
-                                    <td style="direction: ltr;">/sub/{{ p.path }}</td>
-                                    <td style="text-align: center;"><span class="badge badge-unknown" style="padding: 2px 8px; font-size: 10px;">خیر</span></td>
-                                    <td style="text-align: center;">
-                                        <span class="badge {% if p.is_enabled %}badge-vless{% else %}badge-unknown{% endif %}" style="padding: 2px 8px; font-size: 10px;">
-                                            {% if p.is_enabled %}فعال{% else %}غیرفعال{% endif %}
-                                        </span>
-                                    </td>
-                                    <td style="text-align: center;">
-                                        <div class="action-btns" style="justify-content: center; gap: 5px;">
-                                            <button class="btn {% if p.is_enabled %}btn-secondary{% else %}btn-success{% endif %}" 
-                                                    style="padding: 4px 8px; font-size: 11px;" 
-                                                    onclick="setPathEnabled({{ p.id }}, {% if p.is_enabled %}false{% else %}true{% endif %})">
-                                                {% if p.is_enabled %}غیرفعال{% else %}فعال{% endif %}
-                                            </button>
-                                            <button class="btn btn-danger" style="padding: 4px 8px; font-size: 11px;" onclick="deletePath({{ p.id }})">🗑️</button>
-                                        </div>
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+                <div style="border-top: 1px solid var(--border-color); padding-top: 15px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+                    <label>ترتیب نمایش و شماره‌گذاری کانفیگ‌ها:</label>
+                    <div class="radio-group">
+                        <label>
+                            <input type="radio" name="sort_order" value="asc" {% if config_sort_order=='asc' %}checked{% endif %} onchange="changeSortOrder('asc')">
+                            قدیمی‌ترین در ابتدا (اندیس ۱)
+                        </label>
+                        <label>
+                            <input type="radio" name="sort_order" value="desc" {% if config_sort_order=='desc' %}checked{% endif %} onchange="changeSortOrder('desc')">
+                            جدیدترین در ابتدا (اندیس ۱)
+                        </label>
                     </div>
                 </div>
             </div>
         </div>
+        </div><!-- /panel-settings -->
 
+        <!-- ═══ اسکن خودکار ═══ -->
+        <div class="tab-panel" id="panel-automation" role="tabpanel">
         <!-- موتور اسکن خودکار V2RayDAR (Auto Discovery & Health Check) -->
         <div class="card" style="border-top: 4px solid #667eea;">
             <h2 class="card-title" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
@@ -1101,44 +1153,15 @@
             </div>
         </div>
 
+        </div><!-- /panel-automation -->
+
+        <!-- ═══ کانفیگ‌ها ═══ -->
+        <div class="tab-panel" id="panel-configs" role="tabpanel">
         <!-- افزودن کانفیگ -->
         <div class="card">
             <h2 class="card-title">➕ افزودن کانفیگ جدید</h2>
 
             <div id="alert-box" class="alert"></div>
-
-            <div class="format-selector" style="display: flex; flex-direction: column; gap: 15px; align-items: stretch;">
-                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
-                    <label>فرمت خروجی سابسکریپشن:</label>
-                    <div class="radio-group">
-                        <label>
-                            <input type="radio" name="format" value="base64" {% if output_format=='base64' %}checked{% endif
-                                %} onchange="changeFormat('base64')">
-                            Base64
-                        </label>
-                        <label>
-                            <input type="radio" name="format" value="plain" {% if output_format=='plain' %}checked{% endif
-                                %} onchange="changeFormat('plain')">
-                            متن ساده
-                        </label>
-                    </div>
-                </div>
-                <div style="border-top: 1px solid var(--border-color); padding-top: 15px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
-                    <label>ترتیب نمایش و شماره‌گذاری کانفیگ‌ها:</label>
-                    <div class="radio-group">
-                        <label>
-                            <input type="radio" name="sort_order" value="asc" {% if config_sort_order=='asc' %}checked{% endif
-                                %} onchange="changeSortOrder('asc')">
-                            قدیمی‌ترین در ابتدا (اندیس ۱)
-                        </label>
-                        <label>
-                            <input type="radio" name="sort_order" value="desc" {% if config_sort_order=='desc' %}checked{% endif
-                                %} onchange="changeSortOrder('desc')">
-                            جدیدترین در ابتدا (اندیس ۱)
-                        </label>
-                    </div>
-                </div>
-            </div>
 
             <form id="add-config-form" onsubmit="addConfig(event)">
                 <div class="form-group">
@@ -1254,18 +1277,30 @@ hysteria2://..." required></textarea>
             </div>
             {% endif %}
         </div>
-    </div>
+        </div><!-- /panel-configs -->
 
-    <!-- Logs Modal -->
-    <div id="logsModal" class="modal">
-        <div class="modal-content">
-            <span class="close" onclick="closeLogs()">&times;</span>
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                <h2>تاریخچه بازدید لینک سابسکریپشن</h2>
+        <!-- ═══ کاربران ═══ -->
+        <div class="tab-panel" id="panel-users" role="tabpanel">
+        <div class="card">
+            <h2 class="card-title">👥 مدیریت کاربران</h2>
+            <div class="empty-state">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 100-8 4 4 0 000 8z" />
+                </svg>
+                <h3>رابط مدیریت کاربران به‌زودی</h3>
+                <p>ساخت کاربر، لینک یکتا و مدیریت انقضا در مرحله‌ی بعد اضافه می‌شود.</p>
+            </div>
+        </div>
+        </div><!-- /panel-users -->
+
+        <!-- ═══ لاگ‌ها ═══ -->
+        <div class="tab-panel" id="panel-logs" role="tabpanel">
+        <div class="card">
+            <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                <span>📈 تاریخچه بازدید لینک سابسکریپشن</span>
                 <button class="btn btn-danger" onclick="clearLogs()">پاکسازی تاریخچه</button>
             </div>
-
-            <div class="table-container" style="max-height: 500px; overflow-y: auto;">
+            <div class="table-container" style="max-height: 600px; overflow-y: auto;">
                 <table id="logs-table">
                     <thead>
                         <tr>
@@ -1278,12 +1313,13 @@ hysteria2://..." required></textarea>
                     </thead>
                     <tbody>
                         <tr>
-                            <td colspan="3" style="text-align: center;">درحال بارگذاری...</td>
+                            <td colspan="5" style="text-align: center;">درحال بارگذاری...</td>
                         </tr>
                     </tbody>
                 </table>
             </div>
         </div>
+        </div><!-- /panel-logs -->
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -1338,22 +1374,36 @@ hysteria2://..." required></textarea>
             updateChartsTheme();
         }
 
-        // Logs Logic
-        const logsModal = document.getElementById('logsModal');
+        // ── Main tab navigation ──────────────────────────────────
+        function switchTab(name, btn) {
+            document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.main-tab').forEach(t => t.classList.remove('active'));
+            const panel = document.getElementById('panel-' + name);
+            if (panel) panel.classList.add('active');
+            const tabBtn = btn || document.getElementById('mtab-' + name);
+            if (tabBtn) tabBtn.classList.add('active');
+            try { localStorage.setItem('adminActiveTab', name); } catch (e) {}
 
-        function showLogs() {
-            logsModal.style.display = "block";
-            fetchLogs();
-        }
-
-        function closeLogs() {
-            logsModal.style.display = "none";
-        }
-
-        window.onclick = function (event) {
-            if (event.target == logsModal) {
-                closeLogs();
+            if (name === 'logs') {
+                fetchLogs();
+            } else if (name === 'dashboard') {
+                // Charts created while their panel was hidden lay out at 0px;
+                // refit them once the dashboard is visible again.
+                [usageChart, hourlyChart, dailyChart, clientChart].forEach(c => { if (c) c.resize(); });
             }
+        }
+
+        function restoreActiveTab() {
+            let saved = null;
+            try { saved = localStorage.getItem('adminActiveTab'); } catch (e) {}
+            if (saved && saved !== 'dashboard' && document.getElementById('panel-' + saved)) {
+                switchTab(saved);
+            }
+        }
+
+        // Logs Logic — the "history" header button jumps to the logs tab.
+        function showLogs() {
+            switchTab('logs');
         }
 
         function fetchLogs() {
@@ -1380,6 +1430,12 @@ hysteria2://..." required></textarea>
                             statusBadge = '<span class="badge badge-unknown" style="padding: 2px 8px; font-size: 11px; background: #e67e22;">مسیر خاموش</span>';
                         } else if (log.status === 'RATE_LIMIT') {
                             statusBadge = '<span class="badge badge-danger" style="padding: 2px 8px; font-size: 11px; background: #8e44ad;">محدودیت نرخ (429)</span>';
+                        } else if (log.status === 'EXPIRED') {
+                            statusBadge = '<span class="badge" style="padding: 2px 8px; font-size: 11px; background: #e67e22; color: #fff;">منقضی</span>';
+                        } else if (log.status === 'USER_PAUSED') {
+                            statusBadge = '<span class="badge" style="padding: 2px 8px; font-size: 11px; background: #f39c12; color: #fff;">متوقف</span>';
+                        } else if (log.status === 'USER_DISABLED') {
+                            statusBadge = '<span class="badge" style="padding: 2px 8px; font-size: 11px; background: #7f8c8d; color: #fff;">کاربر غیرفعال</span>';
                         } else {
                             statusBadge = `<span class="badge badge-danger" style="padding: 2px 8px; font-size: 11px; background: #e74c3c;">خطا (${log.status})</span>`;
                         }
@@ -2404,6 +2460,7 @@ hysteria2://..." required></textarea>
             loadPathsList();
             initDarkMode();
             loadCharts();
+            restoreActiveTab();
         };
     </script>
 </body>

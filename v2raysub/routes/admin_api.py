@@ -15,6 +15,10 @@ from services.path_service import (
 from services.statistics_service import (
     get_stats, get_chart_data, get_usage_stats, get_logs, clear_logs
 )
+from services.user_service import (
+    get_all_users, add_user, update_user, delete_user,
+    pause_user, resume_user, reset_user, set_user_enabled,
+)
 from database import get_setting, set_setting
 from utils.misc import get_base_url
 
@@ -433,4 +437,117 @@ def cancel_automation():
         return jsonify({'success': False, 'message': 'هیچ اسکن فعالی برای لغو کردن وجود ندارد'})
         
     AutomationService.cancel_scan()
-    return jsonify({'success': True, 'message': 'درخواست لغو اسکن با موفقیت ارسال شد'})
+    return jsonify({'success': True, 'message': 'درخواست لغو اسکن با موفقیت ارسال شد'})
+
+
+# ─── User management endpoints ───────────────────────────────────
+
+def _user_link(user):
+    """Attach the full subscription URL to a user dict for the frontend."""
+    if user:
+        user['sub_url'] = f"{get_base_url(request)}sub/{user['path']}"
+    return user
+
+
+@admin_api_bp.route('/adminpanel/api/users', methods=['GET'])
+def list_users():
+    err = _require_login()
+    if err:
+        return err
+    users = [_user_link(u) for u in get_all_users()]
+    return jsonify(users)
+
+
+@admin_api_bp.route('/adminpanel/api/users', methods=['POST'])
+def create_user():
+    err = _require_login()
+    if err:
+        return err
+    data = request.form if request.form else _get_json_safe()
+    name = (data.get('name') or '').strip()
+    duration_days = data.get('duration_days', 30)
+    custom_path = (data.get('path') or '').strip() or None
+    note = (data.get('note') or '').strip() or None
+    max_devices = data.get('max_devices', 1)
+
+    success, message, user = add_user(
+        name, duration_days=duration_days, custom_path=custom_path,
+        note=note, max_devices=max_devices
+    )
+    result = {'success': success, 'message': message}
+    if success:
+        result['user'] = _user_link(user)
+    return jsonify(result)
+
+
+@admin_api_bp.route('/adminpanel/api/users/<int:user_id>', methods=['PUT', 'POST'])
+def edit_user(user_id):
+    err = _require_login()
+    if err:
+        return err
+    data = request.form if request.form else _get_json_safe()
+
+    # Only pass through keys that were actually provided, so omitted fields
+    # keep their current value instead of being cleared.
+    kwargs = {}
+    if 'name' in data:
+        kwargs['name'] = (data.get('name') or '').strip()
+    if 'duration_days' in data:
+        kwargs['duration_days'] = data.get('duration_days')
+    if 'path' in data:
+        kwargs['custom_path'] = (data.get('path') or '').strip()
+    if 'note' in data:
+        kwargs['note'] = (data.get('note') or '').strip()
+    if 'max_devices' in data:
+        kwargs['max_devices'] = data.get('max_devices')
+
+    success, message = update_user(user_id, **kwargs)
+    return jsonify({'success': success, 'message': message})
+
+
+@admin_api_bp.route('/adminpanel/api/users/<int:user_id>', methods=['DELETE'])
+@admin_api_bp.route('/adminpanel/api/users/<int:user_id>/delete', methods=['POST'])
+def remove_user(user_id):
+    err = _require_login()
+    if err:
+        return err
+    success, message = delete_user(user_id)
+    return jsonify({'success': success, 'message': message})
+
+
+@admin_api_bp.route('/adminpanel/api/users/<int:user_id>/toggle', methods=['POST'])
+def toggle_user(user_id):
+    err = _require_login()
+    if err:
+        return err
+    data = _get_json_safe()
+    enabled = data.get('enabled', True)
+    success, message = set_user_enabled(user_id, enabled)
+    return jsonify({'success': success, 'message': message})
+
+
+@admin_api_bp.route('/adminpanel/api/users/<int:user_id>/pause', methods=['POST'])
+def pause_user_route(user_id):
+    err = _require_login()
+    if err:
+        return err
+    success, message = pause_user(user_id)
+    return jsonify({'success': success, 'message': message})
+
+
+@admin_api_bp.route('/adminpanel/api/users/<int:user_id>/resume', methods=['POST'])
+def resume_user_route(user_id):
+    err = _require_login()
+    if err:
+        return err
+    success, message = resume_user(user_id)
+    return jsonify({'success': success, 'message': message})
+
+
+@admin_api_bp.route('/adminpanel/api/users/<int:user_id>/reset', methods=['POST'])
+def reset_user_route(user_id):
+    err = _require_login()
+    if err:
+        return err
+    success, message = reset_user(user_id)
+    return jsonify({'success': success, 'message': message})

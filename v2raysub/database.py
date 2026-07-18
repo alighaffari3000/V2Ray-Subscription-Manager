@@ -53,6 +53,26 @@ def init_db():
     ''')
 
     db.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            uuid TEXT UNIQUE,
+            name TEXT NOT NULL,
+            path TEXT UNIQUE NOT NULL,
+            status TEXT NOT NULL DEFAULT 'ACTIVE',
+            duration_days INTEGER NOT NULL DEFAULT 30,
+            activated_at TIMESTAMP,
+            expire_at TIMESTAMP,
+            paused_at TIMESTAMP,
+            note TEXT,
+            max_devices INTEGER DEFAULT 1,
+            last_seen TIMESTAMP,
+            last_user_agent TEXT,
+            last_ip TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    db.execute('''
         CREATE TABLE IF NOT EXISTS auto_sources (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
