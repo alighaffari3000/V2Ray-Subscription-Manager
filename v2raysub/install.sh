@@ -90,6 +90,20 @@ if [ ! -f "$SCRIPT_DIR/app_factory.py" ]; then
         echo -e "${RED}    Check the server's connectivity to github.com and try again.${NC}"
         exit 1
     fi
+    # `exec` replaces this process's program but not its open file
+    # descriptors — when invoked as `bash <(curl ...)`, bash keeps an
+    # internal pipe (fd 63 by convention) backing that process substitution,
+    # and it survives into the exec'd script. That leftover pipe has been
+    # observed to make a later heredoc write (`cat > file << EOF`) block
+    # forever in pipe_read, with zero output, looking exactly like a hang.
+    # Close every fd above stderr before exec'ing into the real file so
+    # nothing is left over to collide with.
+    for fd in /proc/$$/fd/*; do
+        n="${fd##*/}"
+        if [ "$n" -gt 2 ] 2>/dev/null; then
+            eval "exec $n<&-" 2>/dev/null || true
+        fi
+    done
     exec bash "$TMP_DIR/V2Ray-Subscription-Manager-master/v2raysub/install.sh"
 fi
 
@@ -324,11 +338,19 @@ if [ "$EXISTING_INSTALL" = "0" ]; then
     # like ' or $ cannot break the command or inject code.
     HASHED_PASSWORD=$(ADMIN_PW="$admin_password" python3 -c "import os; from werkzeug.security import generate_password_hash; print(generate_password_hash(os.environ['ADMIN_PW']))")
 
-    cat > .env << EOF
+    # timeout+tee, not a bare `cat >`: a heredoc write has been observed to
+    # block forever in pipe_read on a leftover fd from the bootstrap exec
+    # (see the comment there). Bounding every config write here means that
+    # class of bug can never be silent again, whatever its exact cause.
+    if ! timeout 30 tee .env > /dev/null << EOF
 ADMIN_USERNAME=$admin_username
 ADMIN_PASSWORD=$HASHED_PASSWORD
 SECRET_KEY=$SECRET_KEY
 EOF
+    then
+        echo -e "${RED}[X] Timed out writing .env.${NC}"
+        exit 1
+    fi
     chmod 600 .env
 else
     echo -e "${GREEN}[5/8] Keeping existing .env (admin login and secret key unchanged).${NC}"
@@ -371,7 +393,7 @@ if [ "$EXISTING_INSTALL" = "0" ]; then
         SSL_LISTEN="listen $PORT;"
     fi
 
-    cat > /etc/nginx/sites-available/v2ray-sub << EOF
+    if ! timeout 30 tee /etc/nginx/sites-available/v2ray-sub > /dev/null << EOF
 server {
     $SSL_LISTEN
     server_name $DOMAIN;
@@ -410,6 +432,10 @@ server {
     }
 }
 EOF
+    then
+        echo -e "${RED}[X] Timed out writing the nginx config.${NC}"
+        exit 1
+    fi
 
     ln -sf /etc/nginx/sites-available/v2ray-sub /etc/nginx/sites-enabled/
     # Always drop nginx's stock default site: it listens on 80 no matter which
@@ -481,7 +507,8 @@ step() {
 # first so we write a real file.
 step 30 "unmask service (no-op when not masked)" systemctl unmask v2ray-sub || true
 
-cat > /etc/systemd/system/v2ray-sub.service << EOF
+echo -ne "${GREEN}  -> write systemd unit... ${NC}"
+if ! timeout 30 tee /etc/systemd/system/v2ray-sub.service > /dev/null << EOF
 [Unit]
 Description=V2Ray Subscription Manager
 After=network.target
@@ -507,6 +534,12 @@ Restart=always
 [Install]
 WantedBy=multi-user.target
 EOF
+then
+    echo -e "${GREEN}done${NC}"
+else
+    echo -e "${YELLOW}FAILED or timed out${NC}"
+    exit 1
+fi
 
 # www-data must own the project so it can write the database and lock files.
 # Generous timeout: on a source-build server, V2RayDAR-main/target holds tens
