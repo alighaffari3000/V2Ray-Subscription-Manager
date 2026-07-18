@@ -52,6 +52,18 @@ port_in_use() {
     ss -tln 2>/dev/null | awk '{print $4}' | grep -qE "[:.]$1\$"
 }
 
+# Write a config file, one line per argument: write_file PATH LINE...
+# Uses only the `printf` builtin with a direct `> file` redirect — no heredoc,
+# no `cat`/`tee`, so it spawns no child process and opens no stdin pipe. That
+# matters because this script is launched as `bash <(curl ...)` and re-execs
+# itself; a leftover process-substitution fd inherited across that exec was
+# observed to make a heredoc write block forever in pipe_read with no output
+# (the step-8 "hang"). A builtin with no pipe simply cannot hit that.
+write_file() {
+    local path="$1"; shift
+    printf '%s\n' "$@" > "$path"
+}
+
 # Download $1 to $2, resuming across retries and tolerating slow-but-alive
 # links. Tries the direct GitHub URL first, then mirrors that proxy GitHub and
 # are often reachable where the CDN is throttled. Prints which one won.
@@ -338,19 +350,10 @@ if [ "$EXISTING_INSTALL" = "0" ]; then
     # like ' or $ cannot break the command or inject code.
     HASHED_PASSWORD=$(ADMIN_PW="$admin_password" python3 -c "import os; from werkzeug.security import generate_password_hash; print(generate_password_hash(os.environ['ADMIN_PW']))")
 
-    # timeout+tee, not a bare `cat >`: a heredoc write has been observed to
-    # block forever in pipe_read on a leftover fd from the bootstrap exec
-    # (see the comment there). Bounding every config write here means that
-    # class of bug can never be silent again, whatever its exact cause.
-    if ! timeout 30 tee .env > /dev/null << EOF
-ADMIN_USERNAME=$admin_username
-ADMIN_PASSWORD=$HASHED_PASSWORD
-SECRET_KEY=$SECRET_KEY
-EOF
-    then
-        echo -e "${RED}[X] Timed out writing .env.${NC}"
-        exit 1
-    fi
+    write_file .env \
+        "ADMIN_USERNAME=$admin_username" \
+        "ADMIN_PASSWORD=$HASHED_PASSWORD" \
+        "SECRET_KEY=$SECRET_KEY"
     chmod 600 .env
 else
     echo -e "${GREEN}[5/8] Keeping existing .env (admin login and secret key unchanged).${NC}"
@@ -393,10 +396,12 @@ if [ "$EXISTING_INSTALL" = "0" ]; then
         SSL_LISTEN="listen $PORT;"
     fi
 
-    if ! timeout 30 tee /etc/nginx/sites-available/v2ray-sub > /dev/null << EOF
-server {
-    $SSL_LISTEN
-    server_name $DOMAIN;
+    # Single-quoted printf format (a builtin, no pipe — see write_file): the
+    # nginx variables ($host etc.) stay literal, and %s injects the two shell
+    # values. $SSL_LISTEN may itself be multi-line (cert directives).
+    printf 'server {
+    %s
+    server_name %s;
 
     access_log /var/log/nginx/v2ray-sub-access.log;
     error_log  /var/log/nginx/v2ray-sub-error.log;
@@ -416,10 +421,10 @@ server {
     location / {
         proxy_pass http://127.0.0.1:5000;
 
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
 
         # No WebSocket endpoints here; sending "Connection: upgrade"
         # unconditionally broke upstream keep-alive. HTTP/1.1 is kept for it.
@@ -431,11 +436,7 @@ server {
         proxy_read_timeout    60s;
     }
 }
-EOF
-    then
-        echo -e "${RED}[X] Timed out writing the nginx config.${NC}"
-        exit 1
-    fi
+' "$SSL_LISTEN" "$DOMAIN" > /etc/nginx/sites-available/v2ray-sub
 
     ln -sf /etc/nginx/sites-available/v2ray-sub /etc/nginx/sites-enabled/
     # Always drop nginx's stock default site: it listens on 80 no matter which
@@ -501,45 +502,40 @@ step() {
 }
 
 # If the unit was ever masked (a symlink to /dev/null — left by a stale
-# uninstall, or a manual `systemctl mask`), the `cat >` below writes straight
-# to /dev/null and the unit stays empty forever, so every restart fails with
-# "Unit is masked" and updates silently keep the old code running. Unmask
-# first so we write a real file.
+# uninstall, or a manual `systemctl mask`), a write would land in /dev/null and
+# the unit would stay empty forever, so every restart fails with "Unit is
+# masked" and updates silently keep the old code running. Unmask first so we
+# write a real file.
 step 30 "unmask service (no-op when not masked)" systemctl unmask v2ray-sub || true
 
-echo -ne "${GREEN}  -> write systemd unit... ${NC}"
-if ! timeout 30 tee /etc/systemd/system/v2ray-sub.service > /dev/null << EOF
-[Unit]
-Description=V2Ray Subscription Manager
-After=network.target
-
-[Service]
-User=www-data
-WorkingDirectory=$PROJECT_DIR
-# www-data's home is /var/www, which it can't write to; gunicorn 26's control
-# server tries to create \$HOME/.gunicorn there and errors. Point HOME at the
-# project dir (owned by www-data) so it can.
-Environment=HOME=$PROJECT_DIR
-# Python block-buffers stdout when it's a pipe (systemd), so the app's print()
-# scan logs never reach journald promptly. Force unbuffered so `journalctl -f`
-# shows scan progress live.
-Environment=PYTHONUNBUFFERED=1
-# Panel timestamps come from Python's datetime.now() and SQLite's 'localtime'
-# modifier, both of which follow this process's timezone. The servers run on
-# UTC; pin the app to Tehran so the panel shows local time.
-Environment=TZ=Asia/Tehran
-ExecStart=$PROJECT_DIR/venv/bin/gunicorn --workers 3 --bind 127.0.0.1:5000 app:app
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-EOF
-then
-    echo -e "${GREEN}done${NC}"
-else
-    echo -e "${YELLOW}FAILED or timed out${NC}"
-    exit 1
-fi
+# write_file (printf builtin, no pipe/heredoc) — the systemd-unit write was the
+# exact line that blocked forever on a leftover fd in earlier versions.
+echo -e "${GREEN}  -> write systemd unit${NC}"
+write_file /etc/systemd/system/v2ray-sub.service \
+    "[Unit]" \
+    "Description=V2Ray Subscription Manager" \
+    "After=network.target" \
+    "" \
+    "[Service]" \
+    "User=www-data" \
+    "WorkingDirectory=$PROJECT_DIR" \
+    "# www-data's home is /var/www, which it can't write to; gunicorn 26's control" \
+    "# server tries to create \$HOME/.gunicorn there and errors. Point HOME at the" \
+    "# project dir (owned by www-data) so it can." \
+    "Environment=HOME=$PROJECT_DIR" \
+    "# Python block-buffers stdout when it's a pipe (systemd), so the app's print()" \
+    "# scan logs never reach journald promptly. Force unbuffered so journalctl -f" \
+    "# shows scan progress live." \
+    "Environment=PYTHONUNBUFFERED=1" \
+    "# Panel timestamps come from Python's datetime.now() and SQLite's 'localtime'" \
+    "# modifier, both of which follow this process's timezone. The servers run on" \
+    "# UTC; pin the app to Tehran so the panel shows local time." \
+    "Environment=TZ=Asia/Tehran" \
+    "ExecStart=$PROJECT_DIR/venv/bin/gunicorn --workers 3 --bind 127.0.0.1:5000 app:app" \
+    "Restart=always" \
+    "" \
+    "[Install]" \
+    "WantedBy=multi-user.target"
 
 # www-data must own the project so it can write the database and lock files.
 # Generous timeout: on a source-build server, V2RayDAR-main/target holds tens
