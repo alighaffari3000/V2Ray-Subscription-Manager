@@ -909,6 +909,12 @@
                             {% if scan_history %}
                                 {% if scan_history[0].status == 'success' %}
                                     <span style="color: #2ecc71;">✓ موفق</span>
+                                {% elif scan_history[0].status == 'skipped' %}
+                                    <span style="color: #f39c12;" title="{{ scan_history[0].error_message }}">⏭ رد شد 🛈</span>
+                                {% elif scan_history[0].status == 'cancelled' %}
+                                    <span style="color: #f39c12;" title="{{ scan_history[0].error_message }}">⏹ لغو شد 🛈</span>
+                                {% elif scan_history[0].status == 'running' %}
+                                    <span style="color: #3498db;">⏳ در حال اجرا</span>
                                 {% else %}
                                     <span style="color: #e74c3c;" title="{{ scan_history[0].error_message }}">✗ خطا 🛈</span>
                                 {% endif %}
@@ -955,6 +961,12 @@
                                     <td style="text-align: center;">
                                         {% if run.status == 'success' %}
                                             <span style="color: #2ecc71; font-weight: bold;">موفق</span>
+                                        {% elif run.status == 'skipped' %}
+                                            <span style="color: #f39c12; font-weight: bold; cursor: help;" title="{{ run.error_message }}">رد شد 🛈</span>
+                                        {% elif run.status == 'cancelled' %}
+                                            <span style="color: #f39c12; font-weight: bold; cursor: help;" title="{{ run.error_message }}">لغو شد 🛈</span>
+                                        {% elif run.status == 'running' %}
+                                            <span style="color: #3498db; font-weight: bold;">در حال اجرا</span>
                                         {% else %}
                                             <span style="color: #e74c3c; font-weight: bold; cursor: help;" title="{{ run.error_message }}">خطا 🛈</span>
                                         {% endif %}
