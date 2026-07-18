@@ -70,10 +70,12 @@ download_with_mirrors() {
 
 # ── One-line bootstrap ───────────────────────────────────────────
 # When run standalone via `bash <(curl ...)` the project files aren't on disk,
-# so fetch the source tarball first and re-exec from inside it.
+# so fetch the source tarball first and re-exec from inside it. This is the
+# same path for a fresh install and an update — either way we need the latest
+# code beside the script; the update-vs-fresh decision happens after re-exec.
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]:-.}" )" 2>/dev/null && pwd || echo /tmp )"
 if [ ! -f "$SCRIPT_DIR/app_factory.py" ]; then
-    echo -e "${GREEN}[*] Project files not found. Downloading source from GitHub...${NC}"
+    echo -e "${GREEN}[*] Fetching the latest code from GitHub...${NC}"
     TMP_DIR=$(mktemp -d)
     if ! curl -fsSL --connect-timeout "$CONNECT_TIMEOUT" --max-time "$DOWNLOAD_MAX_TIME" --retry 2 \
         "https://github.com/$REPO_SLUG/archive/refs/heads/master.tar.gz" | tar -xz -C "$TMP_DIR"; then
