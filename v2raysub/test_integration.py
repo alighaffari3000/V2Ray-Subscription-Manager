@@ -666,5 +666,134 @@ class TestAutomationIntegration(IntegrationTestBase):
         self.assertTrue(data['success'])
 
 
+class TestUsers(IntegrationTestBase):
+    """User management: CRUD, cross-table unique paths, activation-on-first-use,
+    and expiry/pause/disabled subscription serving."""
+
+    def _add_user(self, name='کاربر', days=30, path=None, note=None):
+        payload = {'name': name, 'duration_days': days}
+        if path is not None:
+            payload['path'] = path
+        if note is not None:
+            payload['note'] = note
+        resp = self.client.post('/adminpanel/api/users',
+                                data=json.dumps(payload),
+                                content_type='application/json')
+        return json.loads(resp.data)
+
+    def _get_user(self, user_id):
+        users = json.loads(self.client.get('/adminpanel/api/users').data)
+        return next((u for u in users if u['id'] == user_id), None)
+
+    def _force_expired(self, user_id):
+        """Mark a user as activated in the past and already expired (UTC)."""
+        from database import get_db
+        db = get_db()
+        db.execute("UPDATE users SET activated_at = datetime('now', '-10 day'), "
+                   "expire_at = datetime('now', '-1 hour') WHERE id = ?", (user_id,))
+        db.commit()
+        db.close()
+
+    def _decode(self, resp):
+        import base64
+        return base64.b64decode(resp.data).decode('utf-8')
+
+    # ── auth ──
+    def test_users_api_requires_auth(self):
+        resp = self.client.get('/adminpanel/api/users')
+        self.assertEqual(resp.status_code, 401)
+
+    # ── create / validation ──
+    def test_create_user_auto_path(self):
+        self._login()
+        r = self._add_user('علی', 30)
+        self.assertTrue(r['success'])
+        self.assertTrue(r['user']['path'])
+        self.assertTrue(r['user']['sub_url'].endswith('sub/' + r['user']['path']))
+
+    def test_reject_duplicate_path_users_table(self):
+        self._login()
+        self.assertTrue(self._add_user('A', 30, path='custompath1')['success'])
+        self.assertFalse(self._add_user('B', 30, path='custompath1')['success'])
+
+    def test_reject_path_colliding_with_global(self):
+        # 'freeconfigs' is seeded in subscription_paths; a user must not claim it.
+        self._login()
+        self.assertFalse(self._add_user('A', 30, path='freeconfigs')['success'])
+
+    def test_reject_short_path(self):
+        self._login()
+        self.assertFalse(self._add_user('A', 30, path='short')['success'])
+
+    # ── activation on first use ──
+    def test_first_use_activation(self):
+        self._login()
+        r = self._add_user('A', 30, path='activateme1')
+        uid = r['user']['id']
+        self.assertIsNone(self._get_user(uid)['activated_at'])
+        self.client.get('/sub/activateme1')  # first fetch activates
+        u = self._get_user(uid)
+        self.assertIsNotNone(u['activated_at'])
+        self.assertIsNotNone(u['expire_at'])
+
+    # ── serving states ──
+    def test_active_serves_real_configs(self):
+        self._login()
+        self.client.post('/adminpanel/add', data={
+            'config_text': 'vmess://eyJhZGQiOiJ0ZXN0LmNvbSIsInBvcnQiOiI0NDMiLCJ2IjoiMiJ9'})
+        self._add_user('A', 30, path='activeserve1')
+        resp = self.client.get('/sub/activeserve1')
+        self.assertEqual(resp.status_code, 200)
+        body = self._decode(resp)
+        self.assertIn('vmess://', body)
+        self.assertNotIn('expired-user', body)
+
+    def test_expired_serves_dummy(self):
+        self._login()
+        r = self._add_user('A', 30, path='expireuser1')
+        self.client.get('/sub/expireuser1')  # activate
+        self._force_expired(r['user']['id'])
+        resp = self.client.get('/sub/expireuser1')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('expired-user', self._decode(resp))
+
+    def test_paused_serves_dummy(self):
+        self._login()
+        r = self._add_user('A', 30, path='pauseuser1')
+        self.client.post('/adminpanel/api/users/%d/pause' % r['user']['id'])
+        resp = self.client.get('/sub/pauseuser1')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('expired-user', self._decode(resp))
+
+    def test_disabled_returns_404(self):
+        self._login()
+        r = self._add_user('A', 30, path='disableuser1')
+        self.client.post('/adminpanel/api/users/%d/toggle' % r['user']['id'],
+                         data=json.dumps({'enabled': False}), content_type='application/json')
+        resp = self.client.get('/sub/disableuser1')
+        self.assertEqual(resp.status_code, 404)
+
+    def test_dummy_respects_plain_format(self):
+        self._login()
+        self.client.post('/adminpanel/set_format', data={'format': 'plain'})
+        r = self._add_user('A', 30, path='plainuser1')
+        self.client.get('/sub/plainuser1')  # activate
+        self._force_expired(r['user']['id'])
+        resp = self.client.get('/sub/plainuser1')
+        body = resp.data.decode('utf-8')
+        self.assertTrue(body.startswith('trojan://expired-user'))
+
+    # ── lifecycle ──
+    def test_pause_resume_delete(self):
+        self._login()
+        uid = self._add_user('A', 30, path='lifecycle01')['user']['id']
+        self.assertTrue(json.loads(self.client.post('/adminpanel/api/users/%d/pause' % uid).data)['success'])
+        self.assertEqual(self._get_user(uid)['effective_status'], 'PAUSED')
+        self.assertTrue(json.loads(self.client.post('/adminpanel/api/users/%d/resume' % uid).data)['success'])
+        self.assertEqual(self._get_user(uid)['effective_status'], 'ACTIVE')
+        self.assertTrue(json.loads(self.client.delete('/adminpanel/api/users/%d' % uid).data)['success'])
+        self.assertIsNone(self._get_user(uid))
+
+
 if __name__ == '__main__':
     unittest.main()
