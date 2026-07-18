@@ -12,6 +12,13 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+# systemd tools auto-invoke a pager when they feel like it, and a pager waits
+# on the terminal forever — one of the ways this installer has "hung" in the
+# field with zero output. Force every systemd interaction non-interactive for
+# the whole run.
+export SYSTEMD_PAGER=''
+export PAGER=cat
+
 echo -e "${GREEN}==========================================${NC}"
 echo -e "${GREEN}    V2Ray Subscription Manager - Installer${NC}"
 echo -e "${GREEN}==========================================${NC}"
@@ -449,12 +456,30 @@ if [ "$EXISTING_INSTALL" = "0" ]; then
     fi
 fi
 
+# This step has "hung" twice in the field with nothing on screen to show
+# where. Every action below now announces itself before running, runs with a
+# hard timeout and stdin closed (so nothing can sit silently reading the
+# terminal), and reports its duration — it either finishes or the console
+# shows exactly which action is stuck and for how long.
+step() {
+    local secs="$1" label="$2"; shift 2
+    local t0=$SECONDS
+    echo -ne "${GREEN}  -> ${label}... ${NC}"
+    if timeout "$secs" "$@" < /dev/null; then
+        echo -e "${GREEN}done ($((SECONDS-t0))s)${NC}"
+        return 0
+    else
+        echo -e "${YELLOW}FAILED or timed out after $((SECONDS-t0))s${NC}"
+        return 1
+    fi
+}
+
 # If the unit was ever masked (a symlink to /dev/null — left by a stale
 # uninstall, or a manual `systemctl mask`), the `cat >` below writes straight
 # to /dev/null and the unit stays empty forever, so every restart fails with
 # "Unit is masked" and updates silently keep the old code running. Unmask
 # first so we write a real file.
-systemctl unmask v2ray-sub 2>/dev/null || true
+step 30 "unmask service (no-op when not masked)" systemctl unmask v2ray-sub || true
 
 cat > /etc/systemd/system/v2ray-sub.service << EOF
 [Unit]
@@ -483,9 +508,13 @@ Restart=always
 WantedBy=multi-user.target
 EOF
 
-# www-data must own the project so it can write the database and lock files
-chown -R www-data:www-data $PROJECT_DIR
-chmod -R 755 $PROJECT_DIR
+# www-data must own the project so it can write the database and lock files.
+# Generous timeout: on a source-build server, V2RayDAR-main/target holds tens
+# of thousands of files and a recursive chown/chmod can legitimately take
+# minutes on slow VPS disk — that silence used to look exactly like a hang.
+step 600 "set project ownership (can take minutes on a source-build tree)" \
+    chown -R www-data:www-data $PROJECT_DIR || true
+step 600 "set project permissions" chmod -R 755 $PROJECT_DIR || true
 if [ -f "$PROJECT_DIR/.env" ]; then
     chmod 600 "$PROJECT_DIR/.env"
 fi
@@ -493,15 +522,51 @@ if [ -f "$PROJECT_DIR/database.db" ]; then
     chmod 644 "$PROJECT_DIR/database.db"
 fi
 
-systemctl daemon-reload
-systemctl enable v2ray-sub
-systemctl restart v2ray-sub
+if ! step 60 "reload systemd" systemctl daemon-reload; then
+    echo -e "${RED}[X] systemd would keep using the old unit definition. Aborting.${NC}"
+    exit 1
+fi
+step 30 "enable service at boot" systemctl enable v2ray-sub || true
 
-sleep 2
-if systemctl is-active v2ray-sub > /dev/null; then
+# Stop and start separately instead of `systemctl restart`: stopping the old
+# gunicorn can legitimately take up to ~2 minutes (30s graceful shutdown, then
+# systemd's stop timeout, then SIGKILL) and restart sits through all of it in
+# total silence — the main way this step read as "stuck". This way the slow
+# part is labeled on screen, bounded, and followed by a leftover-process sweep.
+step 150 "stop old service instance (may take up to 2 minutes)" \
+    systemctl stop v2ray-sub || true
+
+# Anything still holding port 5000 now is unmanaged (e.g. a legacy install
+# run outside systemd) and would make the fresh start crash-loop on bind.
+LEFTOVER_PIDS="$(ss -tlnp 2>/dev/null | grep ':5000 ' | grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u | tr '\n' ' ')"
+if [ -n "${LEFTOVER_PIDS// /}" ]; then
+    echo -e "${YELLOW}  -> killing unmanaged process(es) still on port 5000: ${LEFTOVER_PIDS}${NC}"
+    kill $LEFTOVER_PIDS 2>/dev/null || true
+    sleep 2
+    kill -9 $LEFTOVER_PIDS 2>/dev/null || true
+fi
+
+if ! step 60 "start service" systemctl start v2ray-sub; then
+    echo -e "${RED}[X] Service v2ray-sub failed to start. Recent logs:${NC}"
+    journalctl -u v2ray-sub -n 20 --no-pager
+    exit 1
+fi
+
+echo -ne "${GREEN}  -> waiting for the service to come up${NC}"
+SERVICE_UP=0
+for _ in $(seq 1 15); do
+    if systemctl is-active --quiet v2ray-sub; then
+        SERVICE_UP=1
+        break
+    fi
+    echo -n "."
+    sleep 1
+done
+echo ""
+if [ "$SERVICE_UP" = "1" ]; then
     echo -e "${GREEN}[OK] Service v2ray-sub is running.${NC}"
 else
-    echo -e "${RED}[X] Service v2ray-sub failed to start. Recent logs:${NC}"
+    echo -e "${RED}[X] Service v2ray-sub did not come up. Recent logs:${NC}"
     journalctl -u v2ray-sub -n 20 --no-pager
     exit 1
 fi
