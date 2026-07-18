@@ -472,6 +472,10 @@ Environment=HOME=$PROJECT_DIR
 # scan logs never reach journald promptly. Force unbuffered so `journalctl -f`
 # shows scan progress live.
 Environment=PYTHONUNBUFFERED=1
+# Panel timestamps come from Python's datetime.now() and SQLite's 'localtime'
+# modifier, both of which follow this process's timezone. The servers run on
+# UTC; pin the app to Tehran so the panel shows local time.
+Environment=TZ=Asia/Tehran
 ExecStart=$PROJECT_DIR/venv/bin/gunicorn --workers 3 --bind 127.0.0.1:5000 app:app
 Restart=always
 
