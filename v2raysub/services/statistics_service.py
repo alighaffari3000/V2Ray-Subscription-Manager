@@ -60,25 +60,15 @@ def get_stats():
     additional_enabled = db.execute('SELECT COUNT(*) as count FROM subscription_paths WHERE is_primary = 0 AND is_enabled = 1').fetchone()['count']
     paths_disabled = db.execute('SELECT COUNT(*) as count FROM subscription_paths WHERE is_enabled = 0').fetchone()['count']
 
-    client_rows = db.execute('''
-        SELECT 
-            CASE 
-                WHEN user_agent LIKE '%v2rayng%' THEN 'v2rayNG'
-                WHEN user_agent LIKE '%nekobox%' THEN 'Nekobox'
-                WHEN user_agent LIKE '%clash%' THEN 'Clash'
-                WHEN user_agent LIKE '%shadowrocket%' THEN 'Shadowrocket'
-                WHEN user_agent LIKE '%sing-box%' THEN 'Sing-box'
-                ELSE 'Other'
-            END as client,
-            COUNT(*) as count
-        FROM subscription_logs
-        GROUP BY client
-    ''').fetchall()
-
+    # Classified in Python via parse_user_agent (the single source of truth)
+    # rather than a duplicated SQL CASE WHEN, so the client list can't drift
+    # out of sync between call sites.
+    ua_rows = db.execute('SELECT user_agent FROM subscription_logs').fetchall()
     client_counts = {c: 0 for c in CLIENTS}
-    for r in client_rows:
-        if r['client'] in client_counts:
-            client_counts[r['client']] = r['count']
+    for r in ua_rows:
+        client = parse_user_agent(r['user_agent'])
+        if client in client_counts:
+            client_counts[client] += 1
 
     db.close()
 
@@ -191,26 +181,17 @@ def get_usage_stats(range_val='24h'):
             data_arr.append(cnt)
             unique_arr.append(ucnt)
 
-    # Client breakdown
-    client_rows = db.execute('''
-        SELECT 
-            CASE 
-                WHEN user_agent LIKE '%v2rayng%' THEN 'v2rayNG'
-                WHEN user_agent LIKE '%nekobox%' THEN 'Nekobox'
-                WHEN user_agent LIKE '%clash%' THEN 'Clash'
-                WHEN user_agent LIKE '%shadowrocket%' THEN 'Shadowrocket'
-                WHEN user_agent LIKE '%sing-box%' THEN 'Sing-box'
-                ELSE 'Other'
-            END as client,
-            COUNT(*) as count
-        FROM subscription_logs
-        WHERE status = 'SUCCESS' AND datetime(accessed_at, 'localtime') >= ?
-        GROUP BY client
-    ''', (since,)).fetchall()
+    # Client breakdown — classified in Python via parse_user_agent (see the
+    # comment in get_stats for why this replaced a duplicated SQL CASE WHEN).
+    ua_rows = db.execute(
+        "SELECT user_agent FROM subscription_logs WHERE status = 'SUCCESS' AND datetime(accessed_at, 'localtime') >= ?",
+        (since,)
+    ).fetchall()
     client_counts = {c: 0 for c in CLIENTS}
-    for r in client_rows:
-        if r['client'] in client_counts:
-            client_counts[r['client']] = r['count']
+    for r in ua_rows:
+        client = parse_user_agent(r['user_agent'])
+        if client in client_counts:
+            client_counts[client] += 1
 
     # Top paths
     top_paths = db.execute(
@@ -291,28 +272,19 @@ def get_chart_data(daily_range='30d', client_range='30d'):
     # Initialize per-client per-date counters
     client_daily = {c: {d: 0 for d in client_date_labels} for c in CLIENTS}
 
-    client_rows = db.execute('''
-        SELECT 
-            date(accessed_at, 'localtime') as log_date,
-            CASE 
-                WHEN user_agent LIKE '%v2rayng%' THEN 'v2rayNG'
-                WHEN user_agent LIKE '%nekobox%' THEN 'Nekobox'
-                WHEN user_agent LIKE '%clash%' THEN 'Clash'
-                WHEN user_agent LIKE '%shadowrocket%' THEN 'Shadowrocket'
-                WHEN user_agent LIKE '%sing-box%' THEN 'Sing-box'
-                ELSE 'Other'
-            END as client,
-            COUNT(*) as count
-        FROM subscription_logs 
+    # Classified in Python via parse_user_agent (see the comment in get_stats
+    # for why this replaced a duplicated SQL CASE WHEN).
+    ua_date_rows = db.execute('''
+        SELECT date(accessed_at, 'localtime') as log_date, user_agent
+        FROM subscription_logs
         WHERE status = 'SUCCESS' AND date(accessed_at, 'localtime') >= ?
-        GROUP BY log_date, client
     ''', (client_start.strftime('%Y-%m-%d'),)).fetchall()
-    
-    for row in client_rows:
+
+    for row in ua_date_rows:
         d = row['log_date']
-        client = row['client']
+        client = parse_user_agent(row['user_agent'])
         if client in client_daily and d in client_daily[client]:
-            client_daily[client][d] = row['count']
+            client_daily[client][d] += 1
 
     client_result = {'labels': client_date_labels}
     for c in CLIENTS:

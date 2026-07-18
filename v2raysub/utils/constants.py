@@ -19,8 +19,13 @@ PATH_REGEX = r'^[A-Za-z0-9]{3,32}$'
 # طول مسیر تصادفی تولید شده
 RANDOM_PATH_LENGTH = 16
 
-# Known client identifiers
-CLIENTS = ['v2rayNG', 'Nekobox', 'Clash', 'Shadowrocket', 'Sing-box', 'Other']
+# Known client identifiers. Keep in sync with utils/user_agent.parse_user_agent,
+# the single place that classifies a raw User-Agent into one of these names.
+CLIENTS = [
+    'v2rayNG', 'v2rayN', 'Hiddify', 'NapsternetV', 'Streisand', 'FlClash',
+    'Karing', 'Nekobox', 'Clash', 'Shadowrocket', 'Sing-box', 'Browser/Bot',
+    'Other',
+]
 
 # Default settings
 DEFAULT_OUTPUT_FORMAT = 'base64'
