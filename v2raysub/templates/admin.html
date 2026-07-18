@@ -1048,12 +1048,12 @@
                 <form id="automation-settings-form" onsubmit="saveAutomationSettings(event)">
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-bottom: 20px;">
                         <div class="form-group">
-                            <label for="setting-scan-interval">بازه زمانی اسکن کشف کانفیگ (ثانیه):</label>
-                            <input type="number" id="setting-scan-interval" name="scan_interval" value="{{ scan_interval }}" required min="60" style="width: 100%; padding: 8px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--input-bg); color: var(--text-color);">
+                            <label for="setting-scan-interval">بازه زمانی اسکن کشف کانفیگ (دقیقه):</label>
+                            <input type="number" id="setting-scan-interval" name="scan_interval" value="{{ (scan_interval|int / 60)|round|int }}" required min="1" style="width: 100%; padding: 8px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--input-bg); color: var(--text-color);">
                         </div>
                         <div class="form-group">
-                            <label for="setting-health-interval">بازه زمانی بررسی سلامت کانفیگ‌ها (ثانیه):</label>
-                            <input type="number" id="setting-health-interval" name="health_check_interval" value="{{ health_check_interval }}" required min="60" style="width: 100%; padding: 8px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--input-bg); color: var(--text-color);">
+                            <label for="setting-health-interval">بازه زمانی بررسی سلامت کانفیگ‌ها (دقیقه):</label>
+                            <input type="number" id="setting-health-interval" name="health_check_interval" value="{{ (health_check_interval|int / 60)|round|int }}" required min="1" style="width: 100%; padding: 8px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--input-bg); color: var(--text-color);">
                         </div>
                         <div class="form-group">
                             <label for="setting-max-active">حداکثر تعداد کانفیگ‌های فعال در سیستم:</label>
@@ -2341,6 +2341,16 @@ hysteria2://..." required></textarea>
             e.preventDefault();
             const form = document.getElementById('automation-settings-form');
             const formData = new FormData(form);
+
+            // The interval inputs collect minutes for a friendlier UI; the
+            // backend and scheduler store/read seconds, so convert here
+            // rather than touching that stored format.
+            for (const key of ['scan_interval', 'health_check_interval']) {
+                const minutes = parseFloat(formData.get(key));
+                if (!isNaN(minutes)) {
+                    formData.set(key, Math.round(minutes * 60));
+                }
+            }
 
             fetch('/adminpanel/settings/automation', {
                 method: 'POST',

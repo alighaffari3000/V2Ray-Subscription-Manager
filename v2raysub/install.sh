@@ -84,68 +84,84 @@ if [ ! -f "$SCRIPT_DIR/app_factory.py" ]; then
     exec bash "$TMP_DIR/V2Ray-Subscription-Manager-master/v2raysub/install.sh"
 fi
 
-# ── Interactive settings ─────────────────────────────────────────
-read -p "Domain name (e.g. sub.mydomain.com): " DOMAIN
-if [ -z "$DOMAIN" ]; then
-    echo -e "${RED}[X] Domain cannot be empty.${NC}"
-    exit 1
+# ── Update vs. fresh install ─────────────────────────────────────
+# Re-running this same one-line command should update an existing install
+# (new code, dependencies, and engine binary) rather than re-ask for a domain,
+# port, certificate, and admin password every time and risk overwriting a
+# working .env/nginx/SSL setup. Detect that case from the artifacts only a
+# completed install leaves behind.
+EXISTING_INSTALL=0
+if [ -f "$PROJECT_DIR/.env" ] && [ -f /etc/systemd/system/v2ray-sub.service ]; then
+    EXISTING_INSTALL=1
 fi
 
-while true; do
-    read -p "Nginx port [443]: " PORT
-    PORT=${PORT:-443}
-    if ! [[ "$PORT" =~ ^[0-9]+$ ]] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
-        echo -e "${RED}[X] Enter a valid port number (1-65535).${NC}"
-        continue
+if [ "$EXISTING_INSTALL" = "1" ]; then
+    echo -e "${GREEN}[*] Existing installation found at $PROJECT_DIR — updating in place.${NC}"
+    echo -e "${GREEN}    Domain, port, SSL certificate, admin login, and the database are all kept as-is.${NC}"
+else
+    # ── Interactive settings (fresh install only) ──────────────────
+    read -p "Domain name (e.g. sub.mydomain.com): " DOMAIN
+    if [ -z "$DOMAIN" ]; then
+        echo -e "${RED}[X] Domain cannot be empty.${NC}"
+        exit 1
     fi
-    if port_in_use "$PORT"; then
-        echo -e "${YELLOW}[!] Port $PORT is already in use. Pick a different port.${NC}"
-        continue
+
+    while true; do
+        read -p "Nginx port [443]: " PORT
+        PORT=${PORT:-443}
+        if ! [[ "$PORT" =~ ^[0-9]+$ ]] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
+            echo -e "${RED}[X] Enter a valid port number (1-65535).${NC}"
+            continue
+        fi
+        if port_in_use "$PORT"; then
+            echo -e "${YELLOW}[!] Port $PORT is already in use. Pick a different port.${NC}"
+            continue
+        fi
+        break
+    done
+
+    echo ""
+    echo "HTTPS needs a certificate. Options:"
+    echo "  1) I already have one (provide the certificate and key file paths)"
+    echo "  2) Get a free one automatically (Let's Encrypt via Certbot)"
+    echo "  3) Skip for now (use plain HTTP)"
+    read -p "Choose [1/2/3] (default 2): " SSL_CHOICE
+    SSL_CHOICE=${SSL_CHOICE:-2}
+
+    SSL_MODE="none"
+    CERT_PATH=""
+    KEY_PATH=""
+    case "$SSL_CHOICE" in
+        1)
+            while true; do
+                read -p "Path to the certificate file (fullchain .pem/.crt): " CERT_PATH
+                read -p "Path to the private key file (.pem/.key): " KEY_PATH
+                if [ -f "$CERT_PATH" ] && [ -f "$KEY_PATH" ]; then
+                    SSL_MODE="existing"
+                    break
+                fi
+                echo -e "${RED}[X] One or both files don't exist. Try again.${NC}"
+            done
+            ;;
+        2)
+            SSL_MODE="auto"
+            echo -e "${YELLOW}    Note: automatic issuance needs port 80 reachable from the internet${NC}"
+            echo -e "${YELLOW}    (briefly, for verification) regardless of the panel port above.${NC}"
+            ;;
+        *)
+            SSL_MODE="none"
+            ;;
+    esac
+
+    read -p "Admin username [admin]: " admin_username
+    admin_username=${admin_username:-admin}
+
+    read -sp "Admin password: " admin_password
+    echo ""
+    if [ -z "$admin_password" ]; then
+        echo -e "${RED}[X] Password cannot be empty.${NC}"
+        exit 1
     fi
-    break
-done
-
-echo ""
-echo "HTTPS needs a certificate. Options:"
-echo "  1) I already have one (provide the certificate and key file paths)"
-echo "  2) Get a free one automatically (Let's Encrypt via Certbot)"
-echo "  3) Skip for now (use plain HTTP)"
-read -p "Choose [1/2/3] (default 2): " SSL_CHOICE
-SSL_CHOICE=${SSL_CHOICE:-2}
-
-SSL_MODE="none"
-CERT_PATH=""
-KEY_PATH=""
-case "$SSL_CHOICE" in
-    1)
-        while true; do
-            read -p "Path to the certificate file (fullchain .pem/.crt): " CERT_PATH
-            read -p "Path to the private key file (.pem/.key): " KEY_PATH
-            if [ -f "$CERT_PATH" ] && [ -f "$KEY_PATH" ]; then
-                SSL_MODE="existing"
-                break
-            fi
-            echo -e "${RED}[X] One or both files don't exist. Try again.${NC}"
-        done
-        ;;
-    2)
-        SSL_MODE="auto"
-        echo -e "${YELLOW}    Note: automatic issuance needs port 80 reachable from the internet${NC}"
-        echo -e "${YELLOW}    (briefly, for verification) regardless of the panel port above.${NC}"
-        ;;
-    *)
-        SSL_MODE="none"
-        ;;
-esac
-
-read -p "Admin username [admin]: " admin_username
-admin_username=${admin_username:-admin}
-
-read -sp "Admin password: " admin_password
-echo ""
-if [ -z "$admin_password" ]; then
-    echo -e "${RED}[X] Password cannot be empty.${NC}"
-    exit 1
 fi
 
 echo -e "\n${GREEN}[1/8] Installing system packages...${NC}"
@@ -290,58 +306,63 @@ if [ -n "$SING_BOX_BIN" ]; then
     done
 fi
 
-echo -e "${GREEN}[5/8] Writing .env...${NC}"
-SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+if [ "$EXISTING_INSTALL" = "0" ]; then
+    echo -e "${GREEN}[5/8] Writing .env...${NC}"
+    SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
 
-# Hash the admin password with Werkzeug so check_password_hash works at login.
-# Passed via an environment variable (not string interpolation) so characters
-# like ' or $ cannot break the command or inject code.
-HASHED_PASSWORD=$(ADMIN_PW="$admin_password" python3 -c "import os; from werkzeug.security import generate_password_hash; print(generate_password_hash(os.environ['ADMIN_PW']))")
+    # Hash the admin password with Werkzeug so check_password_hash works at login.
+    # Passed via an environment variable (not string interpolation) so characters
+    # like ' or $ cannot break the command or inject code.
+    HASHED_PASSWORD=$(ADMIN_PW="$admin_password" python3 -c "import os; from werkzeug.security import generate_password_hash; print(generate_password_hash(os.environ['ADMIN_PW']))")
 
-cat > .env << EOF
+    cat > .env << EOF
 ADMIN_USERNAME=$admin_username
 ADMIN_PASSWORD=$HASHED_PASSWORD
 SECRET_KEY=$SECRET_KEY
 EOF
-chmod 600 .env
+    chmod 600 .env
+else
+    echo -e "${GREEN}[5/8] Keeping existing .env (admin login and secret key unchanged).${NC}"
+fi
 
 echo -e "${GREEN}[6/8] Initializing the database...${NC}"
 python3 -c "from app_factory import create_app; create_app()"
 
-echo -e "${GREEN}[7/8] Configuring Nginx and SSL for $DOMAIN...${NC}"
+if [ "$EXISTING_INSTALL" = "0" ]; then
+    echo -e "${GREEN}[7/8] Configuring Nginx and SSL for $DOMAIN...${NC}"
 
-if [ "$SSL_MODE" = "auto" ]; then
-    echo -e "${GREEN}[*] Requesting a free certificate from Let's Encrypt...${NC}"
-    # Standalone binds port 80 itself, so anything already on it (nginx's
-    # just-installed default vhost included) must step aside first. The
-    # pre/post hooks are saved into the renewal config so the twice-daily
-    # `certbot renew` timer also frees port 80 for the brief renewal window.
-    systemctl stop nginx 2>/dev/null || true
-    if certbot certonly --standalone -d "$DOMAIN" --non-interactive --agree-tos \
-        --email "webmaster@$DOMAIN" \
-        --pre-hook "systemctl stop nginx" --post-hook "systemctl start nginx"; then
-        CERT_PATH="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
-        KEY_PATH="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
-        echo -e "${GREEN}[OK] Certificate obtained.${NC}"
-    else
-        echo -e "${YELLOW}[!] Certificate request failed (often: port 80 isn't reachable from the${NC}"
-        echo -e "${YELLOW}    internet, or $DOMAIN's DNS doesn't point here yet). Continuing over${NC}"
-        echo -e "${YELLOW}    plain HTTP; retry later with 'certbot certonly --standalone -d $DOMAIN'.${NC}"
-        SSL_MODE="none"
+    if [ "$SSL_MODE" = "auto" ]; then
+        echo -e "${GREEN}[*] Requesting a free certificate from Let's Encrypt...${NC}"
+        # Standalone binds port 80 itself, so anything already on it (nginx's
+        # just-installed default vhost included) must step aside first. The
+        # pre/post hooks are saved into the renewal config so the twice-daily
+        # `certbot renew` timer also frees port 80 for the brief renewal window.
+        systemctl stop nginx 2>/dev/null || true
+        if certbot certonly --standalone -d "$DOMAIN" --non-interactive --agree-tos \
+            --email "webmaster@$DOMAIN" \
+            --pre-hook "systemctl stop nginx" --post-hook "systemctl start nginx"; then
+            CERT_PATH="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
+            KEY_PATH="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
+            echo -e "${GREEN}[OK] Certificate obtained.${NC}"
+        else
+            echo -e "${YELLOW}[!] Certificate request failed (often: port 80 isn't reachable from the${NC}"
+            echo -e "${YELLOW}    internet, or $DOMAIN's DNS doesn't point here yet). Continuing over${NC}"
+            echo -e "${YELLOW}    plain HTTP; retry later with 'certbot certonly --standalone -d $DOMAIN'.${NC}"
+            SSL_MODE="none"
+        fi
     fi
-fi
 
-if [ "$SSL_MODE" = "existing" ] || [ "$SSL_MODE" = "auto" ]; then
-    SSL_LISTEN="listen $PORT ssl;
+    if [ "$SSL_MODE" = "existing" ] || [ "$SSL_MODE" = "auto" ]; then
+        SSL_LISTEN="listen $PORT ssl;
     ssl_certificate     $CERT_PATH;
     ssl_certificate_key $KEY_PATH;"
-    # The cookie must never cross an unencrypted connection now that one exists.
-    echo "SESSION_COOKIE_SECURE=1" >> "$PROJECT_DIR/.env"
-else
-    SSL_LISTEN="listen $PORT;"
-fi
+        # The cookie must never cross an unencrypted connection now that one exists.
+        echo "SESSION_COOKIE_SECURE=1" >> "$PROJECT_DIR/.env"
+    else
+        SSL_LISTEN="listen $PORT;"
+    fi
 
-cat > /etc/nginx/sites-available/v2ray-sub << EOF
+    cat > /etc/nginx/sites-available/v2ray-sub << EOF
 server {
     $SSL_LISTEN
     server_name $DOMAIN;
@@ -381,15 +402,29 @@ server {
 }
 EOF
 
-ln -sf /etc/nginx/sites-available/v2ray-sub /etc/nginx/sites-enabled/
-# Always drop nginx's stock default site: it listens on 80 no matter which
-# port we picked, and if anything else already holds 80 it makes the whole
-# nginx process fail to start (bind() ... Address already in use), taking our
-# site down with it.
-rm -f /etc/nginx/sites-enabled/default
+    ln -sf /etc/nginx/sites-available/v2ray-sub /etc/nginx/sites-enabled/
+    # Always drop nginx's stock default site: it listens on 80 no matter which
+    # port we picked, and if anything else already holds 80 it makes the whole
+    # nginx process fail to start (bind() ... Address already in use), taking our
+    # site down with it.
+    rm -f /etc/nginx/sites-enabled/default
 
-nginx -t
-systemctl restart nginx
+    nginx -t
+    systemctl restart nginx
+else
+    echo -e "${GREEN}[7/8] Nginx/SSL already configured — leaving as-is.${NC}"
+    # Re-derive these purely for the closing banner; nothing here is written.
+    # sed, not grep -P: PCRE needs a UTF-8 locale that a stripped-down VPS
+    # image may not have, and this only needs to work, not be clever.
+    NGINX_CONF="/etc/nginx/sites-available/v2ray-sub"
+    DOMAIN="$(sed -n 's/^[[:space:]]*server_name[[:space:]]\+\([^;]*\);.*/\1/p' "$NGINX_CONF" 2>/dev/null | head -1 | xargs)"
+    PORT="$(sed -n 's/^[[:space:]]*listen[[:space:]]\+\([0-9]\+\).*/\1/p' "$NGINX_CONF" 2>/dev/null | head -1)"
+    if grep -q 'ssl_certificate ' "$NGINX_CONF" 2>/dev/null; then
+        SSL_MODE="existing"
+    else
+        SSL_MODE="none"
+    fi
+fi
 
 echo -e "${GREEN}[8/8] Installing the systemd service...${NC}"
 
@@ -456,7 +491,11 @@ fi
 
 echo ""
 echo -e "${GREEN}==========================================${NC}"
-echo -e "${GREEN} Installation complete.${NC}"
+if [ "$EXISTING_INSTALL" = "1" ]; then
+    echo -e "${GREEN} Update complete.${NC}"
+else
+    echo -e "${GREEN} Installation complete.${NC}"
+fi
 echo -e "${GREEN}==========================================${NC}"
 echo ""
 
@@ -469,18 +508,27 @@ else
     SCHEME="http"
 fi
 
-if { [ "$SCHEME" = "http" ] && [ "$PORT" = "80" ]; } || { [ "$SCHEME" = "https" ] && [ "$PORT" = "443" ]; }; then
-    BASE_URL="$SCHEME://$DOMAIN"
+if [ -z "$DOMAIN" ]; then
+    echo -e "${YELLOW}[!] Could not determine the panel's domain automatically.${NC}"
+    echo -e "${YELLOW}    Check /etc/nginx/sites-available/v2ray-sub for the current URL.${NC}"
 else
-    BASE_URL="$SCHEME://$DOMAIN:$PORT"
-fi
+    if { [ "$SCHEME" = "http" ] && [ "$PORT" = "80" ]; } || { [ "$SCHEME" = "https" ] && [ "$PORT" = "443" ]; }; then
+        BASE_URL="$SCHEME://$DOMAIN"
+    else
+        BASE_URL="$SCHEME://$DOMAIN:$PORT"
+    fi
 
-echo ""
-echo -e "${GREEN}Admin panel:${NC}"
-echo -e "  URL:       ${YELLOW}$BASE_URL/adminpanel${NC}"
-echo -e "  Username:  ${YELLOW}$admin_username${NC}"
-echo -e "  Password:  ${YELLOW}[the password you chose]${NC}"
-echo ""
-echo -e "${GREEN}Subscription link:${NC}"
-echo -e "  ${YELLOW}$BASE_URL/sub/freeconfigs${NC}"
+    echo ""
+    echo -e "${GREEN}Admin panel:${NC}"
+    echo -e "  URL:       ${YELLOW}$BASE_URL/adminpanel${NC}"
+    if [ "$EXISTING_INSTALL" = "1" ]; then
+        echo -e "  Login:     ${YELLOW}unchanged${NC}"
+    else
+        echo -e "  Username:  ${YELLOW}$admin_username${NC}"
+        echo -e "  Password:  ${YELLOW}[the password you chose]${NC}"
+    fi
+    echo ""
+    echo -e "${GREEN}Subscription link:${NC}"
+    echo -e "  ${YELLOW}$BASE_URL/sub/freeconfigs${NC}"
+fi
 echo "=========================================="
