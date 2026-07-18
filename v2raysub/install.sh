@@ -430,20 +430,31 @@ fi
 
 echo -e "${GREEN}[8/8] Installing the systemd service...${NC}"
 
-# gunicorn will silently fail to bind if port 5000 is already held by an
-# unrelated process (e.g. a prior manual install run outside this script, or
-# a different app) — the service then crash-loops with no obvious cause.
-# Fail loudly here instead of leaving that to be debugged later.
-PORT_5000_PID="$(ss -tlnp 2>/dev/null | awk '/:5000 /{print}' | grep -oP 'pid=\K[0-9]+' | head -1)"
-if [ -n "$PORT_5000_PID" ]; then
-    OWNER_CMD="$(ps -p "$PORT_5000_PID" -o comm= 2>/dev/null || echo unknown)"
-    if [ "$OWNER_CMD" != "gunicorn" ]; then
+# On a fresh install, gunicorn will silently fail to bind if port 5000 is
+# already held by an unrelated process (e.g. a prior manual install outside
+# this script, or a different app) — the service then crash-loops with no
+# obvious cause. Fail loudly here instead. On an update this check is skipped:
+# our own v2ray-sub service legitimately holds 5000, its process name is
+# "python3" (gunicorn runs under the venv interpreter) so it can't be told
+# apart from a foreign holder anyway, and `systemctl restart` below hands the
+# port over cleanly on its own.
+if [ "$EXISTING_INSTALL" = "0" ]; then
+    PORT_5000_PID="$(ss -tlnp 2>/dev/null | awk '/:5000 /{print}' | grep -oE 'pid=[0-9]+' | head -1 | cut -d= -f2)"
+    if [ -n "$PORT_5000_PID" ]; then
+        OWNER_CMD="$(ps -p "$PORT_5000_PID" -o comm= 2>/dev/null || echo unknown)"
         echo -e "${RED}[X] Port 5000 is already in use by another process (PID $PORT_5000_PID, $OWNER_CMD).${NC}"
         echo -e "${RED}    This is likely a separate, older install. Stop it first, e.g.:${NC}"
         echo -e "${RED}    systemctl stop <its-service>   OR   kill $PORT_5000_PID${NC}"
         exit 1
     fi
 fi
+
+# If the unit was ever masked (a symlink to /dev/null — left by a stale
+# uninstall, or a manual `systemctl mask`), the `cat >` below writes straight
+# to /dev/null and the unit stays empty forever, so every restart fails with
+# "Unit is masked" and updates silently keep the old code running. Unmask
+# first so we write a real file.
+systemctl unmask v2ray-sub 2>/dev/null || true
 
 cat > /etc/systemd/system/v2ray-sub.service << EOF
 [Unit]
