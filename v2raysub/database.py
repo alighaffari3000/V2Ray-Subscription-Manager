@@ -170,6 +170,7 @@ def init_db():
     db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('fetch_concurrency', '4')")
     db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('probe_concurrency', '10')")
     db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('probe_process_concurrency', '2')")
+    db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('scan_timeout', '1200')")
 
     db.commit()
     db.close()

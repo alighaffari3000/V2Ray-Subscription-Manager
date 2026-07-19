@@ -381,7 +381,7 @@ def save_automation_settings():
     
     db = get_db()
     try:
-        for key in ['scan_interval', 'health_check_interval', 'max_active_configs', 'max_new_configs_per_scan', 'failure_threshold', 'cleanup_policy']:
+        for key in ['scan_interval', 'health_check_interval', 'max_active_configs', 'max_new_configs_per_scan', 'failure_threshold', 'cleanup_policy', 'scan_timeout']:
             if key in data:
                 val = str(data[key]).strip()
                 db.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', (key, val))

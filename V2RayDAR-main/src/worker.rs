@@ -24,6 +24,7 @@ pub struct WorkerInput {
     // as that many reachable configs are found instead of testing all of them.
     pub scan_all: Option<bool>,
     pub target_count: Option<usize>,
+    pub timeout_seconds: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -123,6 +124,18 @@ pub async fn run(mode: WorkerMode, config: AppConfig) -> Result<()> {
             cancel_flag_cloned.store(true, std::sync::atomic::Ordering::SeqCst);
         }
     });
+
+    if let Some(timeout_secs) = input.timeout_seconds {
+        let cancel_flag_timeout = cancel_flag.clone();
+        tokio::spawn(async move {
+            let margin = 15;
+            if timeout_secs > margin {
+                tokio::time::sleep(tokio::time::Duration::from_secs(timeout_secs - margin)).await;
+                eprintln!("Worker reached internal timeout limit ({timeout_secs}s). Stopping after current batch to return partial results...");
+                cancel_flag_timeout.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        });
+    }
 
     // 4. Dispatch based on mode
     let results = match mode {

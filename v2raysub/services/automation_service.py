@@ -43,6 +43,23 @@ def get_validated_concurrency(key, default):
         print(f"Validation Error: setting '{key}' value '{raw}' is not a valid integer: {e}. Falling back to default: {default}")
         return default
 
+def get_validated_timeout(key, default):
+    """Retrieve and validate timeout config parameter from settings.
+    
+    Enforces the bound: 10 <= val <= 86400. Returns default if invalid or out of bounds.
+    """
+    raw = get_setting(key, str(default))
+    try:
+        val = int(raw)
+        if 10 <= val <= 86400:
+            return val
+        else:
+            print(f"Validation Warning: setting '{key}' value {val} is out of bounds [10, 86400]. Falling back to default: {default}")
+            return default
+    except (ValueError, TypeError) as e:
+        print(f"Validation Error: setting '{key}' value '{raw}' is not a valid integer: {e}. Falling back to default: {default}")
+        return default
+
 def locate_v2raydar():
     """Locate the V2RayDAR executable dynamically or via .env settings."""
     env_path = os.getenv('V2RAYDAR_PATH')
@@ -590,11 +607,14 @@ class AutomationService:
                         "priority": s['priority']
                     })
                     
+                scan_timeout = get_validated_timeout('scan_timeout', 1200)
+
                 input_data = {
                     "schema_version": 1,
                     "mode": "discovery",
                     "job_id": job_id,
-                    "sources": sources_list
+                    "sources": sources_list,
+                    "timeout_seconds": scan_timeout
                 }
 
                 # Early stop: don't probe an entire 1000-config source when we
@@ -625,7 +645,7 @@ class AutomationService:
                     "--probe-concurrency", str(probe_c),
                     "--probe-process-concurrency", str(probe_pc)
                 ]
-                ret_code, stdout, stderr, duration_ms = Runner.run_subprocess(cmd, input_json)
+                ret_code, stdout, stderr, duration_ms = Runner.run_subprocess(cmd, input_json, timeout=scan_timeout)
                 
                 if ret_code != 0:
                     status = 'cancelled' if is_cancel_requested() else 'failed'
@@ -733,11 +753,14 @@ class AutomationService:
                         "protocol": c['config_type']
                     })
                     
+                scan_timeout = get_validated_timeout('scan_timeout', 1200)
+
                 input_data = {
                     "schema_version": 1,
                     "mode": "health_check",
                     "job_id": job_id,
-                    "configs": configs_list
+                    "configs": configs_list,
+                    "timeout_seconds": scan_timeout
                 }
                 input_json = json.dumps(input_data)
                 
@@ -749,7 +772,7 @@ class AutomationService:
                     "--probe-concurrency", str(probe_c),
                     "--probe-process-concurrency", str(probe_pc)
                 ]
-                ret_code, stdout, stderr, duration_ms = Runner.run_subprocess(cmd, input_json)
+                ret_code, stdout, stderr, duration_ms = Runner.run_subprocess(cmd, input_json, timeout=scan_timeout)
                 
                 if ret_code != 0:
                     status = 'cancelled' if is_cancel_requested() else 'failed'

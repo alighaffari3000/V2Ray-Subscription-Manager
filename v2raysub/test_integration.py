@@ -463,7 +463,8 @@ class TestAutomationIntegration(IntegrationTestBase):
             'max_active_configs': '200',
             'max_new_configs_per_scan': '25',
             'failure_threshold': '4',
-            'cleanup_policy': 'delete'
+            'cleanup_policy': 'delete',
+            'scan_timeout': '1800'
         })
         self.assertEqual(resp.status_code, 200)
         data = json.loads(resp.data)
@@ -476,6 +477,7 @@ class TestAutomationIntegration(IntegrationTestBase):
         self.assertEqual(get_setting('max_new_configs_per_scan'), '25')
         self.assertEqual(get_setting('failure_threshold'), '4')
         self.assertEqual(get_setting('cleanup_policy'), 'delete')
+        self.assertEqual(get_setting('scan_timeout'), '1800')
 
     def test_stats_contains_automation_counters(self):
         self._login()

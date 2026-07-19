@@ -86,6 +86,7 @@ def admin():
     failure_threshold = get_setting('failure_threshold', '2')
     cleanup_policy = get_setting('cleanup_policy', 'disable')
     early_stop_enabled = get_setting('early_stop_enabled', '1')
+    scan_timeout = get_setting('scan_timeout', '1200')
 
     db.close()
 
@@ -112,5 +113,6 @@ def admin():
         max_new_configs_per_scan=max_new_configs_per_scan,
         failure_threshold=failure_threshold,
         cleanup_policy=cleanup_policy,
-        early_stop_enabled=early_stop_enabled
+        early_stop_enabled=early_stop_enabled,
+        scan_timeout=scan_timeout
     )

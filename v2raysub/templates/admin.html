@@ -725,6 +725,10 @@
                             <option value="delete" {% if cleanup_policy == 'delete' %}selected{% endif %}>🗑️ حذف کامل (Delete)</option>
                         </select>
                     </div>
+                    <div class="form-group" style="margin:0;">
+                        <label for="setting-scan-timeout">حداکثر زمان مجاز اسکن (دقیقه)</label>
+                        <input type="number" id="setting-scan-timeout" name="scan_timeout" value="{{ (scan_timeout|int / 60)|round|int }}" required min="1">
+                    </div>
                 </div>
                 <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 18px;">
                     <input type="checkbox" id="setting-early-stop" name="early_stop_enabled" value="1" {% if early_stop_enabled == '1' %}checked{% endif %} style="width: auto;">
@@ -2277,7 +2281,7 @@ hysteria2://..." required></textarea>
             // The interval inputs collect minutes for a friendlier UI; the
             // backend and scheduler store/read seconds, so convert here
             // rather than touching that stored format.
-            for (const key of ['scan_interval', 'health_check_interval']) {
+            for (const key of ['scan_interval', 'health_check_interval', 'scan_timeout']) {
                 const minutes = parseFloat(formData.get(key));
                 if (!isNaN(minutes)) {
                     formData.set(key, Math.round(minutes * 60));
