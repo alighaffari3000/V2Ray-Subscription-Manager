@@ -2,6 +2,7 @@
 """Raw SQLite connection, schema init, and generic settings helpers."""
 
 import sqlite3
+import uuid
 import utils.constants as constants
 
 
@@ -144,10 +145,20 @@ def init_db():
     _add_column_if_missing(db, 'scan_history', 'duplicate_configs', 'INTEGER DEFAULT 0')
     _add_column_if_missing(db, 'scan_history', 'scan_duration_ms', 'INTEGER DEFAULT 0')
 
-    # Ensure default subscription path exists
-    paths_count = db.execute('SELECT COUNT(*) as count FROM subscription_paths').fetchone()['count']
-    if paths_count == 0:
-        db.execute("INSERT INTO subscription_paths (path, is_primary, is_enabled) VALUES ('freeconfigs', 1, 1)")
+    # Migrate legacy shared paths into unlimited (deletable) users, then drop the
+    # subscription_paths rows so the "public link" concept no longer exists and a
+    # deleted user can't be resurrected by the row. Fresh installs seed nothing,
+    # so a new panel starts with no links until the admin creates a user.
+    for row in db.execute('SELECT path, is_primary FROM subscription_paths').fetchall():
+        exists = db.execute('SELECT 1 FROM users WHERE path = ?', (row['path'],)).fetchone()
+        if not exists:
+            name = 'لینک عمومی' if row['is_primary'] else row['path']
+            db.execute(
+                "INSERT INTO users (uuid, name, path, status, duration_days, activated_at, note) "
+                "VALUES (?, ?, ?, 'ACTIVE', 0, CURRENT_TIMESTAMP, 'مهاجرت‌شده از لینک عمومی')",
+                (uuid.uuid4().hex, name, row['path'])
+            )
+        db.execute('DELETE FROM subscription_paths WHERE path = ?', (row['path'],))
 
     db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('output_format', 'base64')")
     db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('scan_interval', '300')")

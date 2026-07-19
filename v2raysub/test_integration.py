@@ -218,179 +218,21 @@ class TestSettings(IntegrationTestBase):
         self.assertFalse(data['success'])
 
 
-class TestPaths(IntegrationTestBase):
-    """Issue 2 & 4: Path listing, adding (FormData), generating, enabling, deleting."""
-
-    def test_list_paths(self):
-        self._login()
-        resp = self.client.get('/adminpanel/paths')
-        self.assertEqual(resp.status_code, 200)
-        data = json.loads(resp.data)
-        self.assertIsInstance(data, list)
-        # Should have at least the default 'freeconfigs' path
-        self.assertGreaterEqual(len(data), 1)
-
-    def test_add_path_formdata(self):
-        """Issue 4: Frontend sends FormData with path=<value> to change primary path."""
-        self._login()
-        new_path = 'testpath123'
-        resp = self.client.post('/adminpanel/paths/add', data={'path': new_path})
-        data = json.loads(resp.data)
-        self.assertTrue(data['success'])
-        self.assertEqual(data['current_path'], new_path)
-        self.assertTrue(data['current_url'].endswith(f'/sub/{new_path}'))
-
-        # Verify the path is now primary
-        paths_resp = self.client.get('/adminpanel/paths')
-        paths = json.loads(paths_resp.data)
-        primary_paths = [p for p in paths if p.get('is_primary')]
-        self.assertEqual(len(primary_paths), 1)
-        self.assertEqual(primary_paths[0]['path'], new_path)
-
-        # Verify subscription works
-        sub_resp = self.client.get(f'/sub/{new_path}')
-        self.assertEqual(sub_resp.status_code, 200)
-
-    def test_add_path_json(self):
-        self._login()
-        resp = self.client.post('/adminpanel/paths/add',
-                                data=json.dumps({'path': 'jsonpath456'}),
-                                content_type='application/json')
-        data = json.loads(resp.data)
-        self.assertTrue(data['success'])
-
-    def test_add_empty_path_formdata(self):
-        """Empty form submission should return JSON validation error, not HTTP 415."""
-        self._login()
-        resp = self.client.post('/adminpanel/paths/add', data={'path': ''})
-        self.assertEqual(resp.status_code, 200)
-        data = json.loads(resp.data)
-        self.assertFalse(data['success'])
-        self.assertIn('message', data)
-
-    def test_add_empty_path_no_content_type(self):
-        """Submitting with no content-type should not raise 415."""
-        self._login()
-        resp = self.client.post('/adminpanel/paths/add', data='path=')
-        # Should get 200 with JSON validation error, not 415
-        self.assertIn(resp.status_code, (200, 400))
-        if resp.status_code == 200:
-            data = json.loads(resp.data)
-            self.assertFalse(data['success'])
-
-    def test_generate_random_get(self):
-        """Issue 2: Frontend calls GET, not just POST."""
-        self._login()
-        resp = self.client.get('/adminpanel/paths/generate_random')
-        self.assertEqual(resp.status_code, 200)
-        data = json.loads(resp.data)
-        self.assertTrue(data['success'])
-        self.assertIn('path', data)
-        self.assertTrue(len(data['path']) > 0)
-
-    def test_generate_random_post(self):
-        self._login()
-        resp = self.client.post('/adminpanel/paths/generate_random')
-        self.assertEqual(resp.status_code, 200)
-        data = json.loads(resp.data)
-        self.assertTrue(data['success'])
-
-    def test_delete_secondary_path(self):
-        self._login()
-        # First, add a path that will become secondary
-        new_path = 'deleteme'
-        add_resp = self.client.post('/adminpanel/paths/add', data={'path': new_path})
-        add_data = json.loads(add_resp.data)
-        self.assertTrue(add_data['success'], f"Failed to add path: {add_resp.data}")
-
-        # Now add another path which becomes primary, making the first one secondary
-        primary_path = 'primarypath'
-        self.client.post('/adminpanel/paths/add', data={'path': primary_path})
-
-        # Get the path ID of the secondary path
-        paths_resp = self.client.get('/adminpanel/paths')
-        paths = json.loads(paths_resp.data)
-        added_path = [p for p in paths if p['path'] == new_path]
-        self.assertTrue(len(added_path) > 0, f"Path not found in list: {paths_resp.data}")
-        path_id = added_path[0]['id']
-
-        # Verify the path is not primary anymore
-        self.assertFalse(added_path[0].get('is_primary', False), "Path should have become secondary")
-
-        # Verify the path exists before deletion
-        paths_resp = self.client.get('/adminpanel/paths')
-        paths_before = json.loads(paths_resp.data)
-        path_exists = any(p['id'] == path_id for p in paths_before)
-        self.assertTrue(path_exists, f"Path with ID {path_id} not found before deletion")
-
-        # Delete the path
-        resp = self.client.post(f'/adminpanel/paths/delete/{path_id}')
-        data = json.loads(resp.data)
-        self.assertTrue(data['success'], f"Failed to delete path: {resp.data}")
-
-        # Verify the path is actually deleted
-        paths_resp = self.client.get('/adminpanel/paths')
-        paths_after = json.loads(paths_resp.data)
-        deleted_path = [p for p in paths_after if p['id'] == path_id]
-        self.assertEqual(len(deleted_path), 0, f"Path still exists after deletion: {paths_resp.data}")
-
-        # Verify the path is not in the list of paths
-        paths_resp = self.client.get('/adminpanel/paths')
-        paths = json.loads(paths_resp.data)
-        paths_with_same_id = [p for p in paths if p['id'] == path_id]
-        self.assertEqual(len(paths_with_same_id), 0, f"Path with same ID still exists: {paths_resp.data}")
-
-        # Verify the path count decreased by 1
-        self.assertEqual(len(paths_after), len(paths_before) - 1, f"Path count didn't decrease by 1: before {len(paths_before)}, after {len(paths_after)}")
-
-        # Verify the primary path still exists
-        primary_exists = any(p['path'] == primary_path for p in paths_after)
-        self.assertTrue(primary_exists, "Primary path was deleted when it shouldn't have been")
-
-        # Verify the primary path is still marked as primary
-        primary_paths = [p for p in paths_after if p.get('is_primary')]
-        self.assertEqual(len(primary_paths), 1, "There should be exactly one primary path")
-        self.assertEqual(primary_paths[0]['path'], primary_path, "The primary path should be the original one")
-
-        # Verify the secondary path was actually deleted
-        secondary_exists = any(p['path'] == new_path for p in paths_after)
-        self.assertFalse(secondary_exists, "Secondary path was not properly deleted")
-
-        # Verify the path ID is no longer in use
-        paths_resp = self.client.get('/adminpanel/paths')
-        paths = json.loads(paths_resp.data)
-        ids = [p['id'] for p in paths]
-        self.assertNotIn(path_id, ids, f"Path ID {path_id} should not be in use after deletion")
-
-    def test_cannot_delete_primary_path(self):
-        self._login()
-        paths_resp = self.client.get('/adminpanel/paths')
-        paths = json.loads(paths_resp.data)
-        primary = [p for p in paths if p.get('is_primary')]
-        self.assertTrue(primary, "No primary path found to test deletion")
-
-        resp = self.client.post(f'/adminpanel/paths/delete/{primary[0]["id"]}')
-        data = json.loads(resp.data)
-        self.assertFalse(data['success'], "Primary path deletion should fail")
-
-        # Verify the path still exists
-        paths_resp = self.client.get('/adminpanel/paths')
-        paths_after = json.loads(paths_resp.data)
-        path_still_exists = any(p['id'] == primary[0]['id'] for p in paths_after)
-        self.assertTrue(path_still_exists, "Primary path was deleted when it shouldn't have been")
-
-
 class TestSubscription(IntegrationTestBase):
     """Subscription endpoint returns configs for valid paths."""
 
-    def test_default_subscription(self):
+    def test_user_subscription(self):
         self._login()
-        # Add a config
+        # Add a config to the global pool
         self.client.post('/adminpanel/add', data={
             'config_text': 'vmess://eyJhZGQiOiJ0ZXN0LmNvbSIsInBvcnQiOiI0NDMiLCJ2IjoiMiJ9'
         })
-        # Fetch subscription on default path
-        resp = self.client.get('/sub/freeconfigs')
+        # A user link serves the pool (there is no default/public path anymore)
+        r = json.loads(self.client.post('/adminpanel/api/users',
+                                        data=json.dumps({'name': 'sub', 'duration_days': 30, 'path': 'subuser0001'}),
+                                        content_type='application/json').data)
+        self.assertTrue(r['success'])
+        resp = self.client.get('/sub/subuser0001')
         self.assertEqual(resp.status_code, 200)
 
     def test_invalid_path_404(self):
@@ -716,10 +558,16 @@ class TestUsers(IntegrationTestBase):
         self.assertTrue(self._add_user('A', 30, path='custompath1')['success'])
         self.assertFalse(self._add_user('B', 30, path='custompath1')['success'])
 
-    def test_reject_path_colliding_with_global(self):
-        # 'freeconfigs' is seeded in subscription_paths; a user must not claim it.
+    def test_reject_path_colliding_with_legacy_path(self):
+        # Defensive: a user must not claim a path that still lives in the legacy
+        # subscription_paths table (normally emptied by migration).
         self._login()
-        self.assertFalse(self._add_user('A', 30, path='freeconfigs')['success'])
+        from database import get_db
+        db = get_db()
+        db.execute("INSERT INTO subscription_paths (path, is_primary, is_enabled) VALUES ('legacypath01', 0, 1)")
+        db.commit()
+        db.close()
+        self.assertFalse(self._add_user('A', 30, path='legacypath01')['success'])
 
     def test_reject_short_path(self):
         self._login()
@@ -793,6 +641,58 @@ class TestUsers(IntegrationTestBase):
         self.assertEqual(self._get_user(uid)['effective_status'], 'ACTIVE')
         self.assertTrue(json.loads(self.client.delete('/adminpanel/api/users/%d' % uid).data)['success'])
         self.assertIsNone(self._get_user(uid))
+
+    # ── unlimited (duration 0) ──
+    def test_unlimited_never_expires(self):
+        self._login()
+        self.client.post('/adminpanel/add', data={
+            'config_text': 'vmess://eyJhZGQiOiJ0ZXN0LmNvbSIsInBvcnQiOiI0NDMiLCJ2IjoiMiJ9'})
+        uid = self._add_user('نامحدود', 0, path='unlimited001')['user']['id']
+        u = self._get_user(uid)
+        self.assertEqual(u['remaining_text'], 'نامحدود')
+        # first fetch activates but sets no expiry, and serves the real pool
+        resp = self.client.get('/sub/unlimited001')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('vmess://', self._decode(resp))
+        u = self._get_user(uid)
+        self.assertIsNotNone(u['activated_at'])
+        self.assertIsNone(u['expire_at'])
+        self.assertEqual(u['effective_status'], 'ACTIVE')
+
+    # ── migration of legacy public link ──
+    def test_migration_public_link_becomes_user(self):
+        self._login()
+        from database import get_db, init_db
+        db = get_db()
+        db.execute("INSERT INTO subscription_paths (path, is_primary, is_enabled) VALUES ('oldpublic01', 1, 1)")
+        db.commit()
+        db.close()
+        init_db()  # migration runs here
+        users = json.loads(self.client.get('/adminpanel/api/users').data)
+        migrated = [u for u in users if u['path'] == 'oldpublic01']
+        self.assertEqual(len(migrated), 1)
+        self.assertEqual(migrated[0]['duration_days'], 0)  # unlimited
+        # legacy row was removed; deleting the user now kills the link for good
+        db = get_db()
+        remaining = db.execute("SELECT COUNT(*) c FROM subscription_paths WHERE path='oldpublic01'").fetchone()['c']
+        db.close()
+        self.assertEqual(remaining, 0)
+
+    # ── per-user usage history ──
+    def test_user_history(self):
+        self._login()
+        uid = self._add_user('H', 30, path='historyuser1')['user']['id']
+        self.client.get('/sub/historyuser1', headers={'User-Agent': 'v2rayNG/1.2'})
+        self.client.get('/sub/historyuser1', headers={'User-Agent': 'Hiddify/2.0'})
+        resp = self.client.get('/adminpanel/api/users/%d/history' % uid)
+        self.assertEqual(resp.status_code, 200)
+        data = json.loads(resp.data)
+        self.assertGreaterEqual(len(data['history']), 2)
+        self.assertIn('user_agent', data['history'][0])
+        self.assertIn('ip_address', data['history'][0])
+        self.assertIsNotNone(data['last_user_agent'])
+        # distinct user-agents captured
+        self.assertGreaterEqual(len(data['user_agents']), 2)
 
 
 if __name__ == '__main__':

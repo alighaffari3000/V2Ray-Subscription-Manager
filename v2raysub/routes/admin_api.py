@@ -18,6 +18,7 @@ from services.statistics_service import (
 from services.user_service import (
     get_all_users, add_user, update_user, delete_user,
     pause_user, resume_user, reset_user, set_user_enabled,
+    get_user_history,
 )
 from database import get_setting, set_setting
 from utils.misc import get_base_url
@@ -550,4 +551,15 @@ def reset_user_route(user_id):
     if err:
         return err
     success, message = reset_user(user_id)
-    return jsonify({'success': success, 'message': message})
+    return jsonify({'success': success, 'message': message})
+
+
+@admin_api_bp.route('/adminpanel/api/users/<int:user_id>/history', methods=['GET'])
+def user_history_route(user_id):
+    err = _require_login()
+    if err:
+        return err
+    data = get_user_history(user_id)
+    if data is None:
+        return jsonify({'success': False, 'message': 'کاربر پیدا نشد'}), 404
+    return jsonify(data)

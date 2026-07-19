@@ -648,25 +648,6 @@
                 </table>
             </div>
 
-            <!-- وضعیت مسیرهای سابسکریپشن -->
-            <div class="card" style="margin-bottom: 0;">
-                <h2 class="card-title">🌐 وضعیت مسیرهای سابسکریپشن</h2>
-                <table style="width: 100%;">
-                    <tr>
-                        <td style="padding: 8px 0; font-weight: bold;">مسیر اصلی فعلی (Primary):</td>
-                        <td style="padding: 8px 0; text-align: left; direction: ltr; font-weight: bold;" id="primary-path-val">-</td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 8px 0; font-weight: bold;">مسیرهای اضافی روشن (Enabled):</td>
-                        <td style="padding: 8px 0; text-align: left;" id="additional-enabled-val">-</td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 8px 0; font-weight: bold;">مسیرهای خاموش (Disabled):</td>
-                        <td style="padding: 8px 0; text-align: left;" id="paths-disabled-val">-</td>
-                    </tr>
-                </table>
-            </div>
-
             <!-- آمار کلاینت‌ها (User-Agent Breakdown) -->
             <div class="card" style="margin-bottom: 0;">
                 <h2 class="card-title">📱 کلاینت‌های استفاده شده</h2>
@@ -680,15 +661,7 @@
         <!-- ═══ تنظیمات ═══ -->
         <div class="tab-panel" id="panel-settings" role="tabpanel">
         <div class="card">
-            <h2 class="card-title">⚙️ تنظیمات</h2>
-
-            <!-- لینک عمومی -->
-            <div class="subscription-link" style="margin-bottom: 25px;">
-                <p><strong>لینک عمومی (Public / Free link):</strong></p>
-                <code id="sub-link" style="font-weight: bold; color: #667eea; cursor: pointer;" onclick="copySubLink()" title="برای کپی کلیک کنید">{{ base_url }}sub/{{ primary_path }}</code>
-                <button class="copy-btn" onclick="copySubLink()" style="margin-top: 10px; padding: 8px 15px; font-size: 12px; display: block;">📋 کپی لینک عمومی</button>
-                <small style="color: #888; display: block; margin-top: 8px;">این لینک همیشه‌فعال است و برای همه‌ی کاربران یکسان است. برای اشتراک‌های زمان‌دار و اختصاصی از تب «کاربران» استفاده کنید.</small>
-            </div>
+            <h2 class="card-title">⚙️ تنظیمات خروجی سابسکریپشن</h2>
 
             <!-- فرمت خروجی و ترتیب -->
             <div class="format-selector" style="display: flex; flex-direction: column; gap: 15px; align-items: stretch;">
@@ -720,6 +693,46 @@
                 </div>
             </div>
         </div>
+
+        <div class="card">
+            <h2 class="card-title">🤖 تنظیمات اسکن خودکار</h2>
+            <form id="automation-settings-form" onsubmit="saveAutomationSettings(event)">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 18px; margin-bottom: 20px;">
+                    <div class="form-group" style="margin:0;">
+                        <label for="setting-scan-interval">بازه اسکن کشف کانفیگ (دقیقه)</label>
+                        <input type="number" id="setting-scan-interval" name="scan_interval" value="{{ (scan_interval|int / 60)|round|int }}" required min="1">
+                    </div>
+                    <div class="form-group" style="margin:0;">
+                        <label for="setting-health-interval">بازه بررسی سلامت کانفیگ‌ها (دقیقه)</label>
+                        <input type="number" id="setting-health-interval" name="health_check_interval" value="{{ (health_check_interval|int / 60)|round|int }}" required min="1">
+                    </div>
+                    <div class="form-group" style="margin:0;">
+                        <label for="setting-max-active">حداکثر کانفیگ‌های فعال در سیستم</label>
+                        <input type="number" id="setting-max-active" name="max_active_configs" value="{{ max_active_configs }}" required min="10">
+                    </div>
+                    <div class="form-group" style="margin:0;">
+                        <label for="setting-max-new">حداکثر کانفیگ جدید در هر اسکن</label>
+                        <input type="number" id="setting-max-new" name="max_new_configs_per_scan" value="{{ max_new_configs_per_scan }}" required min="1">
+                    </div>
+                    <div class="form-group" style="margin:0;">
+                        <label for="setting-failure-threshold">تعداد خطای متوالی برای غیرفعال‌سازی</label>
+                        <input type="number" id="setting-failure-threshold" name="failure_threshold" value="{{ failure_threshold }}" required min="1">
+                    </div>
+                    <div class="form-group" style="margin:0;">
+                        <label for="setting-cleanup-policy">سیاست برخورد با کانفیگ‌های خراب</label>
+                        <select id="setting-cleanup-policy" name="cleanup_policy">
+                            <option value="disable" {% if cleanup_policy == 'disable' %}selected{% endif %}>🔌 غیرفعال کردن (Disable)</option>
+                            <option value="delete" {% if cleanup_policy == 'delete' %}selected{% endif %}>🗑️ حذف کامل (Delete)</option>
+                        </select>
+                    </div>
+                </div>
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 18px;">
+                    <input type="checkbox" id="setting-early-stop" name="early_stop_enabled" value="1" {% if early_stop_enabled == '1' %}checked{% endif %} style="width: auto;">
+                    توقف زودهنگام اسکن پس از یافتن کانفیگ‌های کافی
+                </label>
+                <button type="submit" class="btn btn-primary">💾 ذخیره تنظیمات اتوماسیون</button>
+            </form>
+        </div>
         </div><!-- /panel-settings -->
 
         <!-- ═══ اسکن خودکار ═══ -->
@@ -731,15 +744,8 @@
                 <span class="badge" style="background: #667eea; color: white; font-size: 11px;">موتور فعال (Stateless)</span>
             </h2>
 
-            <!-- تب‌های ناوبری داخلی -->
-            <div style="display: flex; gap: 10px; border-bottom: 2px solid var(--border-color); padding-bottom: 10px; margin-bottom: 20px; flex-wrap: wrap;">
-                <button class="btn btn-primary tab-btn" id="btn-tab-dashboard" onclick="switchAutomationTab('dashboard-tab', this)" style="padding: 6px 12px; font-size: 13px;">📊 وضعیت و تاریخچه</button>
-                <button class="btn btn-secondary tab-btn" id="btn-tab-sources" onclick="switchAutomationTab('sources-tab', this)" style="padding: 6px 12px; font-size: 13px;">🔗 منابع خودکار</button>
-                <button class="btn btn-secondary tab-btn" id="btn-tab-settings" onclick="switchAutomationTab('settings-tab', this)" style="padding: 6px 12px; font-size: 13px;">⚙️ تنظیمات اتوماسیون</button>
-            </div>
-
             <!-- بخش اول: وضعیت و تاریخچه -->
-            <div id="dashboard-tab" class="automation-tab-content">
+            <div id="dashboard-tab">
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px;">
                     <div style="background: var(--bg-color); padding: 15px; border-radius: 8px; text-align: center; border: 1px solid var(--border-color);">
                         <h4 style="font-size: 13px; opacity: 0.8; margin-bottom: 5px;">آخرین زمان اسکن</h4>
@@ -834,7 +840,8 @@
             </div>
 
             <!-- بخش دوم: مدیریت منابع خودکار -->
-            <div id="sources-tab" class="automation-tab-content" style="display: none;">
+            <h3 style="font-size: 15px; margin: 26px 0 16px; padding-top: 20px; border-top: 1px solid var(--border-color);">🔗 منابع خودکار</h3>
+            <div id="sources-tab">
                 <!-- فرم افزودن منبع -->
                 <form id="add-source-form" onsubmit="addAutoSource(event)" style="background: var(--bg-color); padding: 15px; border-radius: 8px; margin-bottom: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)) auto; gap: 10px; align-items: end; border: 1px solid var(--border-color);">
                     <div class="form-group" style="margin: 0;">
@@ -905,50 +912,6 @@
                 </div>
             </div>
 
-            <!-- بخش سوم: تنظیمات اتوماسیون -->
-            <div id="settings-tab" class="automation-tab-content" style="display: none;">
-                <form id="automation-settings-form" onsubmit="saveAutomationSettings(event)">
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-bottom: 20px;">
-                        <div class="form-group">
-                            <label for="setting-scan-interval">بازه زمانی اسکن کشف کانفیگ (دقیقه):</label>
-                            <input type="number" id="setting-scan-interval" name="scan_interval" value="{{ (scan_interval|int / 60)|round|int }}" required min="1" style="width: 100%; padding: 8px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--input-bg); color: var(--text-color);">
-                        </div>
-                        <div class="form-group">
-                            <label for="setting-health-interval">بازه زمانی بررسی سلامت کانفیگ‌ها (دقیقه):</label>
-                            <input type="number" id="setting-health-interval" name="health_check_interval" value="{{ (health_check_interval|int / 60)|round|int }}" required min="1" style="width: 100%; padding: 8px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--input-bg); color: var(--text-color);">
-                        </div>
-                        <div class="form-group">
-                            <label for="setting-max-active">حداکثر تعداد کانفیگ‌های فعال در سیستم:</label>
-                            <input type="number" id="setting-max-active" name="max_active_configs" value="{{ max_active_configs }}" required min="10" style="width: 100%; padding: 8px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--input-bg); color: var(--text-color);">
-                        </div>
-                        <div class="form-group">
-                            <label for="setting-max-new">حداکثر کانفیگ جدید اضافه شده در هر اسکن:</label>
-                            <input type="number" id="setting-max-new" name="max_new_configs_per_scan" value="{{ max_new_configs_per_scan }}" required min="1" style="width: 100%; padding: 8px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--input-bg); color: var(--text-color);">
-                        </div>
-                        <div class="form-group">
-                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                                <input type="checkbox" id="setting-early-stop" name="early_stop_enabled" value="1" {% if early_stop_enabled == '1' %}checked{% endif %} style="width: auto;">
-                                توقف زودهنگام اسکن پس از یافتن کانفیگ‌های کافی
-                            </label>
-                            <small style="color: var(--text-muted, #888); display: block; margin-top: 4px;">
-                                با روشن بودن، اسکن به‌محض یافتن به تعداد «حداکثر کانفیگ جدید در هر اسکن» متوقف می‌شود و همه‌ی کانفیگ‌های منبع بررسی نمی‌شوند (سریع‌تر). برای بررسی کامل همه‌ی کانفیگ‌ها خاموشش کنید.
-                            </small>
-                        </div>
-                        <div class="form-group">
-                            <label for="setting-failure-threshold">تعداد خطاهای متوالی جهت غیرفعال‌سازی کانفیگ:</label>
-                            <input type="number" id="setting-failure-threshold" name="failure_threshold" value="{{ failure_threshold }}" required min="1" style="width: 100%; padding: 8px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--input-bg); color: var(--text-color);">
-                        </div>
-                        <div class="form-group">
-                            <label for="setting-cleanup-policy">سیاست برخورد با کانفیگ‌های خراب:</label>
-                            <select id="setting-cleanup-policy" name="cleanup_policy" style="width: 100%; padding: 8px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--input-bg); color: var(--text-color);">
-                                <option value="disable" {% if cleanup_policy == 'disable' %}selected{% endif %}>🔌 غیرفعال کردن (Disable)</option>
-                                <option value="delete" {% if cleanup_policy == 'delete' %}selected{% endif %}>🗑️ حذف کامل (Delete)</option>
-                            </select>
-                        </div>
-                    </div>
-                    <button type="submit" class="btn btn-primary">💾 ذخیره تنظیمات اتوماسیون</button>
-                </form>
-            </div>
         </div>
 
         </div><!-- /panel-automation -->
@@ -1151,7 +1114,8 @@ hysteria2://..." required></textarea>
                 </div>
                 <div class="form-group">
                     <label for="user-days">مدت اشتراک (روز)</label>
-                    <input type="number" id="user-days" value="30" min="1">
+                    <input type="number" id="user-days" value="30" min="0">
+                    <small style="color:var(--text-muted); display:block; margin-top:6px;">۰ = نامحدود (بدون تاریخ انقضا).</small>
                 </div>
                 <div class="form-group">
                     <label for="user-path">مسیر سفارشی (اختیاری)</label>
@@ -1167,12 +1131,39 @@ hysteria2://..." required></textarea>
                 </div>
                 <div class="form-group" style="margin-bottom:0;">
                     <label for="user-devices">حداکثر دستگاه</label>
-                    <input type="number" id="user-devices" value="1" min="1">
+                    <input type="number" id="user-devices" value="3" min="0">
+                    <small style="color:var(--text-muted); display:block; margin-top:6px;">۰ = نامحدود.</small>
                 </div>
             </div>
             <div class="modal-foot">
                 <button class="btn btn-primary" onclick="saveUser()">💾 ذخیره</button>
                 <button class="btn btn-secondary" onclick="closeUserModal()">انصراف</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- User history / devices modal -->
+    <div class="modal-overlay" id="history-modal" onclick="if(event.target===this)closeUserHistory()">
+        <div class="modal-box" style="max-width: 640px;">
+            <div class="modal-head">
+                <h3 id="history-modal-title">تاریخچه‌ی کاربر</h3>
+                <button class="modal-close" onclick="closeUserHistory()" aria-label="بستن">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="history-summary" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-bottom:18px;"></div>
+                <h3 style="font-size:14px; margin-bottom:10px;">🖥️ دستگاه‌ها (User-Agentها)</h3>
+                <div class="table-container" style="margin-bottom:18px;">
+                    <table><thead><tr><th>User-Agent</th><th style="width:70px">دفعات</th><th style="width:150px">آخرین بار</th></tr></thead>
+                        <tbody id="history-uas"></tbody></table>
+                </div>
+                <h3 style="font-size:14px; margin-bottom:10px;">📜 آخرین دسترسی‌ها</h3>
+                <div class="table-container" style="max-height:300px; overflow-y:auto;">
+                    <table><thead><tr><th>زمان</th><th>IP</th><th>User-Agent</th><th style="width:90px">وضعیت</th></tr></thead>
+                        <tbody id="history-rows"></tbody></table>
+                </div>
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-secondary" onclick="closeUserHistory()">بستن</button>
             </div>
         </div>
     </div>
@@ -1598,12 +1589,7 @@ hysteria2://..." required></textarea>
                     document.getElementById('db-size-val').textContent = data.db_size;
                     document.getElementById('total-logs-val').textContent = data.total_logs;
                     document.getElementById('most-requested-path-val').textContent = "/sub/" + data.most_requested_path;
-                    
-                    // آمار مسیرها
-                    document.getElementById('primary-path-val').textContent = "/sub/" + data.primary_path;
-                    document.getElementById('additional-enabled-val').textContent = data.additional_enabled;
-                    document.getElementById('paths-disabled-val').textContent = data.paths_disabled;
-                    
+
                     // آمار کلاینت‌ها (بر اساس User-Agent)
                     const clientsBreakdown = document.getElementById('clients-breakdown');
                     clientsBreakdown.innerHTML = '';
@@ -2396,6 +2382,7 @@ hysteria2://..." required></textarea>
                     <td>${escapeHtml(u.remaining_text)}</td>
                     <td>${userStatusBadge(st)}</td>
                     <td><div class="action-btns">
+                        <button class="btn btn-secondary" style="padding:5px 9px" onclick="openUserHistory(${i})" title="تاریخچه و دستگاه‌ها">👁️</button>
                         <button class="btn btn-secondary" style="padding:5px 9px" onclick="editUser(${i})" title="ویرایش">✏️</button>
                         ${pauseResume}
                         <button class="btn btn-secondary" style="padding:5px 9px" onclick="userAction(${u.id},'reset')" title="ریست فعال‌سازی">↺</button>
@@ -2415,7 +2402,7 @@ hysteria2://..." required></textarea>
             document.getElementById('user-days').value = '30';
             document.getElementById('user-path').value = '';
             document.getElementById('user-note').value = '';
-            document.getElementById('user-devices').value = '1';
+            document.getElementById('user-devices').value = '3';
             document.getElementById('user-modal').classList.add('show');
             setTimeout(() => document.getElementById('user-name').focus(), 50);
         }
@@ -2482,9 +2469,54 @@ hysteria2://..." required></textarea>
                 .then(r => r.json()).then(res => { showAlert(res.message, res.success ? 'success' : 'error'); loadUsers(); });
         }
 
+        function logStatusBadge(status) {
+            const m = {
+                SUCCESS: ['var(--success-soft)', 'var(--success)', 'موفق'],
+                EXPIRED: ['var(--warning-soft)', 'var(--warning)', 'منقضی'],
+                USER_PAUSED: ['var(--warning-soft)', 'var(--warning)', 'متوقف'],
+                USER_DISABLED: ['rgba(107,118,144,.2)', 'var(--text-muted)', 'غیرفعال'],
+                DISABLED_PATH: ['rgba(107,118,144,.2)', 'var(--text-muted)', 'مسیر خاموش'],
+                NOT_FOUND: ['var(--danger-soft)', 'var(--danger)', 'یافت نشد'],
+                RATE_LIMIT: ['var(--danger-soft)', 'var(--danger)', 'محدودیت نرخ']
+            };
+            const [bg, fg, label] = m[status] || ['var(--surface-2)', 'var(--text-secondary)', status];
+            return `<span style="background:${bg};color:${fg};padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap">${label}</span>`;
+        }
+
+        function _statTile(label, val) {
+            return `<div style="background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:10px 12px">
+                <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">${label}</div>
+                <div style="font-size:13px;direction:ltr;word-break:break-all">${escapeHtml(val)}</div></div>`;
+        }
+
+        function openUserHistory(i) {
+            const u = _usersCache[i];
+            document.getElementById('history-modal-title').textContent = 'تاریخچه‌ی ' + u.name;
+            document.getElementById('history-summary').innerHTML = '<div style="color:var(--text-muted)">درحال بارگذاری...</div>';
+            document.getElementById('history-uas').innerHTML = '';
+            document.getElementById('history-rows').innerHTML = '';
+            document.getElementById('history-modal').classList.add('show');
+            fetch('/adminpanel/api/users/' + u.id + '/history')
+                .then(r => r.json())
+                .then(d => {
+                    document.getElementById('history-summary').innerHTML =
+                        _statTile('آخرین IP', d.last_ip || '—') +
+                        _statTile('آخرین دستگاه', d.last_user_agent || '—') +
+                        _statTile('آخرین اتصال', d.last_seen || '—');
+                    document.getElementById('history-uas').innerHTML = (d.user_agents && d.user_agents.length)
+                        ? d.user_agents.map(x => `<tr><td style="direction:ltr;font-size:12px">${escapeHtml(x.user_agent)}</td><td>${x.hits}</td><td style="font-size:12px;white-space:nowrap">${escapeHtml(x.last_at || '')}</td></tr>`).join('')
+                        : '<tr><td colspan="3" style="text-align:center;color:var(--text-muted)">دستگاهی ثبت نشده است</td></tr>';
+                    document.getElementById('history-rows').innerHTML = (d.history && d.history.length)
+                        ? d.history.map(x => `<tr><td style="font-size:12px;white-space:nowrap">${escapeHtml(x.at || '')}</td><td style="direction:ltr">${escapeHtml(x.ip_address || '')}</td><td style="direction:ltr;font-size:12px">${escapeHtml(x.user_agent || '')}</td><td>${logStatusBadge(x.status)}</td></tr>`).join('')
+                        : '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">دسترسی‌ای ثبت نشده است</td></tr>';
+                })
+                .catch(() => { document.getElementById('history-summary').innerHTML = '<div style="color:var(--danger)">خطا در بارگذاری تاریخچه</div>'; });
+        }
+
+        function closeUserHistory() { document.getElementById('history-modal').classList.remove('show'); }
+
         window.onload = function () {
             loadStats();
-            loadPathsList();
             initDarkMode();
             loadCharts();
             restoreActiveTab();

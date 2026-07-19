@@ -123,6 +123,8 @@ def compute_effective_status(user, now=None):
 def _remaining(user, now=None):
     """Return (remaining_seconds or None, human_text)."""
     now = now or _utcnow()
+    if int(user.get('duration_days') or 0) == 0:
+        return None, 'نامحدود'
     expire = _parse(user.get('expire_at'))
     if expire is None:
         return None, 'فعال نشده'
@@ -186,8 +188,8 @@ def add_user(name, duration_days=30, custom_path=None, note=None, max_devices=1)
         duration_days = int(duration_days)
     except (TypeError, ValueError):
         return False, 'مدت اشتراک باید عدد باشد', None
-    if duration_days < 1:
-        return False, 'مدت اشتراک باید حداقل ۱ روز باشد', None
+    if duration_days < 0:
+        return False, 'مدت اشتراک نمی‌تواند منفی باشد', None
     try:
         max_devices = int(max_devices)
     except (TypeError, ValueError):
@@ -265,17 +267,26 @@ def update_user(user_id, name=None, duration_days=None, custom_path=None,
                 new_days = int(duration_days)
             except (TypeError, ValueError):
                 return False, 'مدت اشتراک باید عدد باشد'
-            if new_days < 1:
-                return False, 'مدت اشتراک باید حداقل ۱ روز باشد'
+            if new_days < 0:
+                return False, 'مدت اشتراک نمی‌تواند منفی باشد'
             old_days = user['duration_days']
             sets.append('duration_days = ?'); params.append(new_days)
-            # If already activated, shift expire_at by the delta so remaining time
-            # tracks the new duration. If not activated yet, only the number changes.
-            if user['activated_at'] and user['expire_at'] and new_days != old_days:
-                expire = _parse(user['expire_at'])
-                if expire is not None:
-                    new_expire = expire + timedelta(days=(new_days - old_days))
-                    sets.append('expire_at = ?'); params.append(new_expire.strftime(_TS_FMT))
+            # Recompute expiry only for an already-activated user; a not-yet-activated
+            # user just stores the new number (expiry is set on first use).
+            if user['activated_at'] and new_days != old_days:
+                if new_days == 0:
+                    sets.append('expire_at = NULL')  # became unlimited
+                elif old_days == 0:
+                    # was unlimited → count the new span from activation
+                    act = _parse(user['activated_at']) or _utcnow()
+                    sets.append('expire_at = ?')
+                    params.append((act + timedelta(days=new_days)).strftime(_TS_FMT))
+                else:
+                    # finite → finite: shift by the delta (preserves pause credit)
+                    expire = _parse(user['expire_at'])
+                    if expire is not None:
+                        sets.append('expire_at = ?')
+                        params.append((expire + timedelta(days=(new_days - old_days))).strftime(_TS_FMT))
 
         if not sets:
             return True, 'تغییری اعمال نشد'
@@ -455,7 +466,9 @@ def resolve_user_request(sub_path, ip=None, user_agent=None):
         # ACTIVE: activate on first use, atomically (guards against races).
         if not user['activated_at']:
             now = _utcnow()
-            expire = (now + timedelta(days=int(user['duration_days']))).strftime(_TS_FMT)
+            dur = int(user['duration_days'] or 0)
+            # duration 0 = unlimited: activate but never set an expiry.
+            expire = None if dur <= 0 else (now + timedelta(days=dur)).strftime(_TS_FMT)
             db.execute(
                 'UPDATE users SET activated_at = ?, expire_at = ? '
                 'WHERE id = ? AND activated_at IS NULL',
@@ -473,5 +486,43 @@ def resolve_user_request(sub_path, ip=None, user_agent=None):
         print(f"Error resolving user request: {e}")
         # On unexpected error, treat as not-a-user so the route can fall back.
         return None
+    finally:
+        db.close()
+
+
+def get_user_history(user_id, limit=200):
+    """Per-user access history from subscription_logs (matched by the user's
+    path), newest first, plus the last-seen snapshot. Returns None if the user
+    doesn't exist."""
+    db = get_db()
+    try:
+        u = db.execute(
+            'SELECT name, path, last_user_agent, last_ip, last_seen FROM users WHERE id = ?',
+            (user_id,)
+        ).fetchone()
+        if not u:
+            return None
+        rows = db.execute(
+            "SELECT datetime(accessed_at, 'localtime') AS at, ip_address, user_agent, status "
+            "FROM subscription_logs WHERE request_path = ? "
+            "ORDER BY accessed_at DESC LIMIT ?",
+            (u['path'], limit)
+        ).fetchall()
+        # Distinct user-agents this user has connected with.
+        uas = db.execute(
+            "SELECT user_agent, COUNT(*) AS hits, MAX(datetime(accessed_at,'localtime')) AS last_at "
+            "FROM subscription_logs WHERE request_path = ? AND user_agent IS NOT NULL AND user_agent != '' "
+            "GROUP BY user_agent ORDER BY last_at DESC",
+            (u['path'],)
+        ).fetchall()
+        return {
+            'name': u['name'],
+            'path': u['path'],
+            'last_user_agent': u['last_user_agent'],
+            'last_ip': u['last_ip'],
+            'last_seen': _to_local_str(_parse(u['last_seen'])),
+            'user_agents': [dict(r) for r in uas],
+            'history': [dict(r) for r in rows],
+        }
     finally:
         db.close()
