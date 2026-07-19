@@ -8,11 +8,19 @@ A lightweight, high-performance, and secure Flask application to manage V2Ray/Xr
 
 ## 🌟 Key Features / ویژگی‌های کلیدی
 
-### 1. Dynamic Paths / مدیریت مسیرهای پویا
-* **Custom Paths**: Change your subscription path dynamically from the admin panel (e.g. from `/sub/freeconfigs` to `/sub/custompath123`).
-* **Auxiliary Paths**: Create, enable, disable, or delete additional subscription paths. Disabling a path immediately returns a `404 Not Found` response to clients.
-* **Random Paths**: Generate cryptographically secure, unique 16-character alphanumeric paths with one click.
-* **تغییر پویای آدرس**: امکان مدیریت، فعال/غیرفعال کردن یا حذف مسیرهای سابسکریپشن و تغییر آدرس اصلی به صورت آنی بدون نیاز به تغییر یا راه‌اندازی مجدد کد.
+### 1. User Management / مدیریت کاربران
+* **Per-user subscription links**: Create a user with a name, a subscription duration (in days), and a unique link (`/sub/<random-or-custom-path>`). Every link belongs to a user — there is no shared/public link.
+* **Activation on first use**: The countdown to expiry starts the moment the client first fetches the link, not when the admin creates it.
+* **Unlimited plans**: Set duration to `0` for a subscription with no expiry, and max devices to `0` for no device cap.
+* **Fair pause/resume**: Pausing a user freezes their remaining time; resuming restores it exactly, crediting back the paused duration.
+* **Graceful expiry**: Once a subscription expires (or is paused/disabled), the client receives a single placeholder config named "Subscription expired" instead of the real list — no broken connection, just a clear signal.
+* **Per-user usage history**: View every access (timestamp, IP, User-Agent, status) and the distinct devices/clients that have connected with a given user's link.
+* **لینک اشتراک اختصاصی برای هر کاربر**: ساخت کاربر با نام، مدت اشتراک (روز) و لینک یکتا؛ دیگر لینک عمومی/مشترک وجود ندارد — هر لینک متعلق به یک کاربر است.
+* **فعال‌سازی در اولین استفاده**: شمارش انقضا از لحظه‌ی اولین دریافت لینک توسط کلاینت آغاز می‌شود، نه از لحظه‌ی ساخت کاربر.
+* **اشتراک نامحدود**: مقدار `۰` برای مدت اشتراک یعنی بدون انقضا، و `۰` برای حداکثر دستگاه یعنی بدون محدودیت.
+* **توقف و ازسرگیری منصفانه**: با توقف اشتراک، زمان باقی‌مانده منجمد می‌شود و با ازسرگیری، دقیقاً همان مدت به تاریخ انقضا اضافه می‌شود.
+* **پایان اشتراک بدون قطعی**: پس از انقضا (یا توقف/غیرفعال‌سازی)، به‌جای کانفیگ‌های واقعی، یک کانفیگ نمایشی با نام «اشتراک شما به پایان رسیده است» ارسال می‌شود.
+* **تاریخچه‌ی مصرف هر کاربر**: مشاهده‌ی کامل دسترسی‌ها (زمان، IP، User-Agent، وضعیت) و دستگاه‌های متمایزی که با لینک هر کاربر متصل شده‌اند.
 
 ### 2. Smart Remark Formatting / فرمت‌دهی هوشمند نام کانفیگ‌ها
 * **Index Numbering**: Subscription output names are dynamically re-indexed in-memory (e.g. `1`, `2`, `3`) to look clean.
@@ -30,16 +38,21 @@ A lightweight, high-performance, and secure Flask application to manage V2Ray/Xr
 ### 4. Advanced Request Logging / ثبت پیشرفته تاریخچه دسترسی
 * Category logs:
   * `SUCCESS` (Successful downloads - 200 OK)
-  * `DISABLED_PATH` (Requests to disabled paths - 404)
-  * `NOT_FOUND` (Requests to non-existent paths - 404)
+  * `EXPIRED` (Requests from an expired user subscription — served the placeholder config)
+  * `USER_PAUSED` (Requests from a paused user — served the placeholder config)
+  * `USER_DISABLED` (Requests from a disabled user - 404)
+  * `NOT_FOUND` (Requests to a link that isn't any user's - 404)
   * `RATE_LIMIT` (Requests blocked by rate limiting - 429)
-* **ثبت لاگ‌های دسترسی**: دسته‌بندی و ذخیره جزئیات دقیق بازدیدها شامل زمان، آدرس IP، آدرس مسیر درخواستی، برنامه کلاینت و وضعیت موفقیت یا خطا.
+* Every log entry (global, in the Logs tab, and per-user in a user's history) records the timestamp, IP, requested path, User-Agent, and status.
+* **ثبت لاگ‌های دسترسی**: دسته‌بندی و ذخیره جزئیات دقیق بازدیدها شامل زمان، آدرس IP، مسیر درخواستی، برنامه کلاینت و وضعیت (موفق، منقضی، متوقف، غیرفعال، یافت‌نشده)، هم به‌صورت سراسری در تب لاگ‌ها و هم به‌تفکیک هر کاربر در تاریخچه‌ی اختصاصی او.
 
 ### 5. Premium UI/UX / رابط کاربری حرفه‌ای
+* Sidebar-driven admin panel (Dashboard, Users, Configs, Auto Scan, Settings, Logs) instead of one long scrolling page.
+* Modern dark-first design system with a light mode toggle, Vazirmatn Persian webfont, and a persisted theme preference.
 * Responsive design optimized for desktop and mobile.
-* Sleek dark mode / light mode toggle.
 * Floating Toast notifications for smooth status messages.
-* **رابط کاربری واکنش‌گرا**: دارای تم‌های تاریک و روشن، انیمیشن‌های روان و اعلان‌های پویای Toast بهینه‌سازی شده برای موبایل و دسکتاپ.
+* **پنل مدیریت مبتنی بر سایدبار**: دسترسی سریع به تب‌های داشبورد، کاربران، کانفیگ‌ها، اسکن خودکار، تنظیمات و لاگ‌ها بدون اسکرول طولانی.
+* **سیستم طراحی تیره به‌عنوان پیش‌فرض**: با امکان تغییر به تم روشن، فونت فارسی Vazirmatn و انیمیشن‌های روان بهینه‌سازی‌شده برای موبایل و دسکتاپ.
 
 ---
 
@@ -129,13 +142,14 @@ sudo systemctl restart nginx
 ├── v2ray-sub.service     # Systemd Service configuration / کانفیگ سرویس لینوکس
 │
 ├── routes/               # Web Route Blueprints / فایل‌های روت و طرح‌واره‌های وب
-│   ├── client.py         # Dynamic Subscription client routes / خروجی سابسکریپشن
+│   ├── client.py         # Per-user subscription serving (/sub/<path>) / خروجی سابسکریپشن هر کاربر
 │   ├── admin_pages.py    # Admin page templates rendering / رندر صفحات مدیریت
 │   └── admin_api.py      # Admin panel JSON API endpoints / ای‌پی‌آی‌های پنل مدیریت
 │
 ├── services/             # Core business logic (Telegram Bot ready) / سرویس‌های محاسباتی هسته
-│   ├── subscription_service.py # Subscription resolution logic / پردازش نهایی ساب
-│   ├── path_service.py   # Sub paths CRUD operations / مدیریت پویای آدرس‌ها
+│   ├── user_service.py   # User CRUD, activation, pause/resume, expiry, history / منطق کامل مدیریت کاربران
+│   ├── subscription_service.py # Subscription resolution + expired-placeholder config / پردازش نهایی ساب
+│   ├── path_service.py   # Legacy shared-path helpers (see note below) / باقیمانده‌ی مسیر عمومی حذف‌شده
 │   ├── config_service.py # Configs CRUD operations / مدیریت و تغییر نام کانفیگ‌ها
 │   └── statistics_service.py   # Chart telemetry & logs gathering / آمار و تاریخچه‌ها
 │
@@ -151,6 +165,16 @@ sudo systemctl restart nginx
 │   └── login.html        # Login View / صفحه ورود پنل
 └── .gitignore            # Git ignored patterns / لیست فایل‌های نادیده گرفته شده در گیت
 ```
+
+> **Note:** `path_service.py` (shared/public subscription paths) predates the per-user model above.
+> The public-link concept has been retired — on startup, `database.py` migrates any leftover
+> shared path into a deletable user and drops the old row — but `admin_api.py`/`admin_pages.py`
+> still import a few of its functions, so the file remains for now pending a cleanup pass.
+>
+> `path_service.py` (مدیریت مسیرهای عمومی/مشترک) بازمانده‌ی مدل قدیمی قبل از مدیریت کاربران است.
+> مفهوم لینک عمومی حذف شده — هنگام بالا آمدن برنامه، `database.py` هر مسیر مشترک باقی‌مانده را به یک
+> کاربر قابل‌حذف مهاجرت می‌دهد — اما چون `admin_api.py`/`admin_pages.py` هنوز چند تابع از آن را
+> ایمپورت می‌کنند، فایل فعلاً باقی مانده تا پاک‌سازی بعدی.
 
 ---
 
