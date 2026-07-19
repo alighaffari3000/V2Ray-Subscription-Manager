@@ -61,6 +61,57 @@ def scheduler_worker(app):
                         args=('health_check',),
                         daemon=True
                     ).start()
+
+                # Check if it's time for Scheduled Backup
+                try:
+                    backup_enabled = get_setting('backup_scheduled_enabled', '0') == '1'
+                    if backup_enabled:
+                        interval = get_setting('backup_interval', 'daily')
+                        last_backup_str = get_setting('last_backup_time', '')
+                        
+                        interval_seconds = 86400
+                        if interval == '6h':
+                            interval_seconds = 6 * 3600
+                        elif interval == '12h':
+                            interval_seconds = 12 * 3600
+                        elif interval == 'daily':
+                            interval_seconds = 24 * 3600
+                        elif interval == 'weekly':
+                            interval_seconds = 7 * 24 * 3600
+                        elif interval == 'monthly':
+                            interval_seconds = 30 * 24 * 3600
+                            
+                        should_backup = False
+                        from datetime import datetime
+                        if not last_backup_str:
+                            should_backup = True
+                        else:
+                            try:
+                                last_backup_dt = datetime.strptime(last_backup_str, '%Y-%m-%d %H:%M:%S')
+                                now_dt = datetime.utcnow()
+                                if (now_dt - last_backup_dt).total_seconds() >= interval_seconds:
+                                    should_backup = True
+                            except Exception:
+                                should_backup = True
+                                
+                        if should_backup:
+                            print(f"Triggering Scheduled Backup from scheduler. Interval: {interval}")
+                            from services.backup_service import BackupService
+                            from database import set_setting
+                            set_setting('last_backup_time', datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'))
+                            
+                            sched_type = get_setting('backup_scheduled_type', 'standard')
+                            import os
+                            
+                            def run_bg_backup():
+                                try:
+                                    BackupService.create_backup(user='SYSTEM', backup_type=sched_type, trigger_delivery=True)
+                                except Exception as e_bk:
+                                    print(f"Failed scheduled background backup: {e_bk}")
+                                    
+                            threading.Thread(target=run_bg_backup, daemon=True).start()
+                except Exception as e_bk_chk:
+                    print(f"Error checking scheduled backup: {e_bk_chk}")
                     
         except Exception as e:
             print(f"Error in background scheduler loop: {e}")

@@ -52,6 +52,20 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    db.execute('''
+        CREATE TABLE IF NOT EXISTS backup_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            operation TEXT NOT NULL,
+            user TEXT,
+            status TEXT NOT NULL,
+            duration REAL,
+            backup_size INTEGER,
+            error_message TEXT,
+            delivery_status TEXT,
+            checksum TEXT
+        )
+    ''')
 
     db.execute('''
         CREATE TABLE IF NOT EXISTS users (
@@ -171,6 +185,15 @@ def init_db():
     db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('probe_concurrency', '10')")
     db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('probe_process_concurrency', '2')")
     db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('scan_timeout', '1200')")
+
+    # Seed backup configurations
+    db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('backup_scheduled_enabled', '0')")
+    db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('backup_interval', 'daily')")
+    db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('backup_retention_max', '30')")
+    db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('backup_telegram_enabled', '0')")
+    db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('backup_telegram_bot_token', '')")
+    db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('backup_telegram_chat_id', '')")
+    db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('backup_telegram_api_server', 'https://api.telegram.org')")
 
     db.commit()
     db.close()

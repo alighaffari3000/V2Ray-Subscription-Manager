@@ -88,6 +88,16 @@ def admin():
     early_stop_enabled = get_setting('early_stop_enabled', '1')
     scan_timeout = get_setting('scan_timeout', '1200')
 
+    # Backup Settings
+    backup_scheduled_enabled = get_setting('backup_scheduled_enabled', '0')
+    backup_interval = get_setting('backup_interval', 'daily')
+    backup_scheduled_type = get_setting('backup_scheduled_type', 'standard')
+    backup_retention_max = get_setting('backup_retention_max', '30')
+    backup_telegram_enabled = get_setting('backup_telegram_enabled', '0')
+    backup_telegram_bot_token = get_setting('backup_telegram_bot_token', '')
+    backup_telegram_chat_id = get_setting('backup_telegram_chat_id', '')
+    backup_telegram_api_server = get_setting('backup_telegram_api_server', 'https://api.telegram.org')
+
     db.close()
 
     return render_template(
@@ -114,5 +124,13 @@ def admin():
         failure_threshold=failure_threshold,
         cleanup_policy=cleanup_policy,
         early_stop_enabled=early_stop_enabled,
-        scan_timeout=scan_timeout
+        scan_timeout=scan_timeout,
+        backup_scheduled_enabled=backup_scheduled_enabled,
+        backup_interval=backup_interval,
+        backup_scheduled_type=backup_scheduled_type,
+        backup_retention_max=backup_retention_max,
+        backup_telegram_enabled=backup_telegram_enabled,
+        backup_telegram_bot_token=backup_telegram_bot_token,
+        backup_telegram_chat_id=backup_telegram_chat_id,
+        backup_telegram_api_server=backup_telegram_api_server
     )

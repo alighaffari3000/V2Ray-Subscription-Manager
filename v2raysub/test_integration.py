@@ -693,8 +693,256 @@ class TestUsers(IntegrationTestBase):
         self.assertIn('user_agent', data['history'][0])
         self.assertIn('ip_address', data['history'][0])
         self.assertIsNotNone(data['last_user_agent'])
-        # distinct user-agents captured
         self.assertGreaterEqual(len(data['user_agents']), 2)
+
+
+class TestBackupRestore(IntegrationTestBase):
+    """Integration tests for Backup & Disaster Recovery system."""
+
+    def _add_config(self):
+        return self.client.post('/adminpanel/add', data={
+            'config_text': 'vmess://eyJhZGQiOiJ0ZXN0LmNvbSIsInBvcnQiOiI0NDMiLCJ2IjoiMiJ9'
+        })
+
+    def _add_user(self, name, duration=30, path=None):
+        payload = {'name': name, 'duration_days': duration}
+        if path:
+            payload['path'] = path
+        resp = self.client.post('/adminpanel/api/users', data=payload)
+        return json.loads(resp.data.decode('utf-8'))
+
+    def test_manual_backup_creation_and_download(self):
+        self._login()
+        
+        # Add dummy data
+        self._add_config()
+        self._add_user("User A", 30)
+
+        # Create backup
+        resp = self.client.post('/adminpanel/api/backup/create', data={'backup_type': 'standard'})
+        self.assertEqual(resp.status_code, 200)
+        data = json.loads(resp.data)
+        self.assertTrue(data['success'])
+        self.assertIn('filename', data)
+        self.assertIn('checksum', data)
+        self.assertGreater(data['size'], 0)
+
+        filename = data['filename']
+
+        # Download backup
+        resp_dl = self.client.get(f'/adminpanel/api/backup/download/{filename}')
+        self.assertEqual(resp_dl.status_code, 200)
+        self.assertEqual(len(resp_dl.data), data['size'])
+
+    def test_backup_logs(self):
+        self._login()
+        self.client.post('/adminpanel/api/backup/create', data={'backup_type': 'standard'})
+        
+        resp_logs = self.client.get('/adminpanel/api/backup/logs')
+        self.assertEqual(resp_logs.status_code, 200)
+        logs = json.loads(resp_logs.data)
+        self.assertGreaterEqual(len(logs), 1)
+        self.assertEqual(logs[0]['operation'], 'backup')
+        self.assertEqual(logs[0]['status'], 'SUCCESS')
+
+    def test_backup_verify_and_restore(self):
+        self._login()
+        
+        # 1. Populate database
+        self._add_config()
+        self._add_user("User to Backup", 30, path="backupuserpath1")
+
+        # 2. Create backup
+        resp_create = self.client.post('/adminpanel/api/backup/create', data={'backup_type': 'standard'})
+        data_create = json.loads(resp_create.data)
+        filename = data_create['filename']
+
+        # Download backup zip bytes
+        resp_dl = self.client.get(f'/adminpanel/api/backup/download/{filename}')
+        zip_bytes = resp_dl.data
+
+        # 3. Modify database (add new user, delete old user)
+        self._add_user("New User", 15, path="newuserpath1")
+        # Verify database has changed
+        users_before = json.loads(self.client.get('/adminpanel/api/users').data)
+        paths_before = [u['path'] for u in users_before]
+        self.assertIn("newuserpath1", paths_before)
+
+        # 4. Verify backup non-destructively
+        import io
+        verify_data = {
+            'backup_file': (io.BytesIO(zip_bytes), filename)
+        }
+        resp_ver = self.client.post('/adminpanel/api/backup/verify', data=verify_data, content_type='multipart/form-data')
+        self.assertEqual(resp_ver.status_code, 200)
+        data_ver = json.loads(resp_ver.data)
+        self.assertTrue(data_ver['success'])
+        self.assertEqual(data_ver['stats']['backup_type'], 'standard')
+
+        # 5. Restore backup
+        restore_data = {
+            'backup_file': (io.BytesIO(zip_bytes), filename),
+            'restore_env': 'false'
+        }
+        resp_res = self.client.post('/adminpanel/api/backup/restore', data=restore_data, content_type='multipart/form-data')
+        self.assertEqual(resp_res.status_code, 200)
+        data_res = json.loads(resp_res.data)
+        self.assertTrue(data_res['success'])
+
+        # 6. Verify database is restored back (New User is gone, User to Backup is back)
+        users_after = json.loads(self.client.get('/adminpanel/api/users').data)
+        paths_after = [u['path'] for u in users_after]
+        self.assertIn("backupuserpath1", paths_after)
+        self.assertNotIn("newuserpath1", paths_after)
+
+    def test_backup_encryption_full_dr(self):
+        self._login()
+        self._add_user("Secret User", 90, path="secretpath99")
+
+        # Create encrypted Full DR backup
+        resp_create = self.client.post('/adminpanel/api/backup/create', data={
+            'backup_type': 'full_dr',
+            'password': 'testsecretpass123'
+        })
+        self.assertEqual(resp_create.status_code, 200)
+        data_create = json.loads(resp_create.data)
+        filename = data_create['filename']
+
+        # Download ZIP and check encryption header ENC\x00
+        resp_dl = self.client.get(f'/adminpanel/api/backup/download/{filename}')
+        zip_bytes = resp_dl.data
+        self.assertTrue(zip_bytes.startswith(b'ENC\x00'))
+
+        # Verify with wrong password (should fail)
+        import io
+        verify_data_wrong = {
+            'backup_file': (io.BytesIO(zip_bytes), filename),
+            'password': 'wrongpassword'
+        }
+        resp_ver_wrong = self.client.post('/adminpanel/api/backup/verify', data=verify_data_wrong, content_type='multipart/form-data')
+        data_ver_wrong = json.loads(resp_ver_wrong.data)
+        self.assertFalse(data_ver_wrong['success'])
+
+        # Verify with correct password (should succeed)
+        verify_data_correct = {
+            'backup_file': (io.BytesIO(zip_bytes), filename),
+            'password': 'testsecretpass123'
+        }
+        resp_ver_correct = self.client.post('/adminpanel/api/backup/verify', data=verify_data_correct, content_type='multipart/form-data')
+        data_ver_correct = json.loads(resp_ver_correct.data)
+        self.assertTrue(data_ver_correct['success'])
+
+        # Restore using correct password
+        restore_data = {
+            'backup_file': (io.BytesIO(zip_bytes), filename),
+            'password': 'testsecretpass123',
+            'restore_env': 'true'
+        }
+        resp_res = self.client.post('/adminpanel/api/backup/restore', data=restore_data, content_type='multipart/form-data')
+        self.assertEqual(resp_res.status_code, 200)
+        data_res = json.loads(resp_res.data)
+        self.assertTrue(data_res['success'])
+
+    def test_restore_rollback_on_failure(self):
+        self._login()
+        self._add_user("User to Protect", 30, path="protectpath123")
+
+        # Restore with a corrupted file
+        import io
+        restore_data = {
+            'backup_file': (io.BytesIO(b'INVALID_ZIP_DATA'), 'corrupted_backup.zip')
+        }
+        resp_res = self.client.post('/adminpanel/api/backup/restore', data=restore_data, content_type='multipart/form-data')
+        # Should fail verification and return an error JSON
+        data_res = json.loads(resp_res.data)
+        self.assertFalse(data_res['success'])
+
+        # Verify database is intact (User to Protect is still there)
+        users = json.loads(self.client.get('/adminpanel/api/users').data)
+        paths = [u['path'] for u in users]
+        self.assertIn("protectpath123", paths)
+
+    def test_retention_cleanup(self):
+        self._login()
+        # Save retention max = 2
+        self.client.post('/adminpanel/api/settings/backup', data={
+            'backup_retention_max': '2'
+        })
+
+        # Create 3 backups
+        r1 = json.loads(self.client.post('/adminpanel/api/backup/create', data={'backup_type': 'standard'}).data)
+        r2 = json.loads(self.client.post('/adminpanel/api/backup/create', data={'backup_type': 'standard'}).data)
+        r3 = json.loads(self.client.post('/adminpanel/api/backup/create', data={'backup_type': 'standard'}).data)
+
+        # Get list of backups
+        resp_list = self.client.get('/adminpanel/api/backup/list')
+        backups = json.loads(resp_list.data)
+        
+        # Max retention is 2, so the first backup (r1) should be purged!
+        filenames = [b['filename'] for b in backups]
+        self.assertNotIn(r1['filename'], filenames)
+        self.assertIn(r2['filename'], filenames)
+        self.assertIn(r3['filename'], filenames)
+
+    def test_disk_space_validation(self):
+        self._login()
+        
+        # Mock shutil.disk_usage to return 0 free space
+        import shutil
+        orig_disk_usage = shutil.disk_usage
+        shutil.disk_usage = lambda path: (1000, 1000, 0) # 0 free bytes
+
+        try:
+            resp = self.client.post('/adminpanel/api/backup/create', data={'backup_type': 'standard'})
+            data = json.loads(resp.data)
+            self.assertFalse(data['success'])
+            self.assertIn('دیسک کافی نیست', data['message'])
+        finally:
+            shutil.disk_usage = orig_disk_usage
+
+    def test_telegram_and_bale_delivery_mock(self):
+        self._login()
+        
+        # Enable Telegram delivery and set Bale API Server
+        self.client.post('/adminpanel/api/settings/backup', data={
+            'backup_telegram_enabled': '1',
+            'backup_telegram_bot_token': '123456:ABC-DEF',
+            'backup_telegram_chat_id': '987654321',
+            'backup_telegram_api_server': 'https://tapi.bale.ai'
+        })
+
+        # Mock requests.post to check URL endpoint
+        import requests
+        orig_post = requests.post
+        
+        url_called = []
+        def mock_post(url, *args, **kwargs):
+            url_called.append(url)
+            # Create a mock response
+            class MockResponse:
+                status_code = 200
+                text = "OK"
+            return MockResponse()
+
+        requests.post = mock_post
+        try:
+            # Create backup and let it trigger delivery (deliver_backup runs delivery synchronously or via timer)
+            # Wait, in BackupService.create_backup, it spawns a Thread to run deliver_backup.
+            # To test it synchronously, we can call BackupService.deliver_backup directly!
+            from services.backup_service import BackupService
+            
+            # Create a backup zip to send
+            b = BackupService.create_backup(user='admin', backup_type='standard', trigger_delivery=False)
+            filepath = os.path.join(BackupService.get_backup_dir(), b['filename'])
+            
+            # Run delivery directly
+            BackupService.deliver_backup(filepath)
+            
+            # Verify it hit bale API server instead of Telegram
+            self.assertGreater(len(url_called), 0)
+            self.assertTrue(url_called[0].startswith('https://tapi.bale.ai/bot123456:ABC-DEF/sendDocument'))
+        finally:
+            requests.post = orig_post
 
 
 if __name__ == '__main__':

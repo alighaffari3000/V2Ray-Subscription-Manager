@@ -477,6 +477,7 @@
                 <button class="nav-item" id="mtab-configs" role="tab" onclick="switchTab('configs', this)"><span class="nav-ico">📁</span>کانفیگ‌ها <span class="nav-count">{{ total_configs }}</span></button>
                 <button class="nav-item" id="mtab-automation" role="tab" onclick="switchTab('automation', this)"><span class="nav-ico">🤖</span>اسکن خودکار</button>
                 <button class="nav-item" id="mtab-settings" role="tab" onclick="switchTab('settings', this)"><span class="nav-ico">⚙️</span>تنظیمات</button>
+                <button class="nav-item" id="mtab-backup" role="tab" onclick="switchTab('backup', this)"><span class="nav-ico">💾</span>پشتیبان‌گیری</button>
                 <button class="nav-item" id="mtab-logs" role="tab" onclick="switchTab('logs', this)"><span class="nav-ico">📈</span>لاگ‌ها</button>
             </nav>
 
@@ -738,6 +739,201 @@
             </form>
         </div>
         </div><!-- /panel-settings -->
+
+        <!-- ═══ پشتیبان‌گیری و بازیابی داده‌ها ═══ -->
+        <div class="tab-panel" id="panel-backup" role="tabpanel">
+            
+            <!-- Health Dashboard Summary -->
+            <div class="card" style="border-top: 4px solid var(--primary); background: var(--surface-1);">
+                <h2 class="card-title">🩺 وضعیت سلامت پشتیبان‌گیری</h2>
+                <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+                    <div class="stat-card" style="background: var(--surface-2); padding: 12px 15px; border-radius: 8px;">
+                        <h3 style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">آخرین بکاپ موفق</h3>
+                        <div style="font-size: 14px; font-weight: bold; direction: ltr; text-align: right;" id="health-last-success">—</div>
+                    </div>
+                    <div class="stat-card" style="background: var(--surface-2); padding: 12px 15px; border-radius: 8px;">
+                        <h3 style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">آخرین بکاپ ناموفق</h3>
+                        <div style="font-size: 14px; font-weight: bold; color: var(--danger); direction: ltr; text-align: right;" id="health-last-failed">—</div>
+                    </div>
+                    <div class="stat-card" style="background: var(--surface-2); padding: 12px 15px; border-radius: 8px;">
+                        <h3 style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">آخرین ارسال به ربات</h3>
+                        <div style="font-size: 14px; font-weight: bold;" id="health-last-delivery">—</div>
+                    </div>
+                    <div class="stat-card" style="background: var(--surface-2); padding: 12px 15px; border-radius: 8px;">
+                        <h3 style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">کل فضای مصرفی</h3>
+                        <div style="font-size: 14px; font-weight: bold;" id="health-total-size">—</div>
+                    </div>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; margin-bottom: 20px; align-items: start;">
+                <!-- Manual Backup & Restore Card -->
+                <div class="card" style="margin: 0; height: 100%;">
+                    <h2 class="card-title">💾 پشتیبان‌گیری و بازیابی دستی</h2>
+                    
+                    <div style="margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid var(--border-color);">
+                        <h3 style="font-size: 14px; margin-bottom: 10px;">ایجاد بکاپ جدید</h3>
+                        <div style="display: flex; flex-direction: column; gap: 10px;">
+                            <div style="display: flex; gap: 15px; align-items: center;">
+                                <label style="font-size: 13px;">نوع نسخه پشتیبان:</label>
+                                <label style="cursor: pointer; font-size: 13px;">
+                                    <input type="radio" name="manual_backup_type" value="standard" checked onchange="toggleManualPassword(false)"> استاندارد (بدون اسرار)
+                                </label>
+                                <label style="cursor: pointer; font-size: 13px;">
+                                    <input type="radio" name="manual_backup_type" value="full_dr" onchange="toggleManualPassword(true)"> کامل (Disaster Recovery)
+                                </label>
+                            </div>
+                            
+                            <div id="manual-password-container" style="display: none; flex-direction: column; gap: 5px;">
+                                <label for="manual_backup_password" style="font-size: 12px; color: var(--text-muted);">پسورد رمزگذاری فایل (اختیاری):</label>
+                                <input type="password" id="manual_backup_password" placeholder="برای قفل کردن فایل یک رمز وارد کنید" style="padding: 6px 12px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-input); color: var(--text-color);">
+                            </div>
+                            
+                            <button onclick="triggerManualBackup()" class="btn btn-primary" id="btn-create-backup" style="align-self: flex-start; display: flex; align-items: center; gap: 8px;">
+                                <span>📥 ایجاد و دانلود مستقیم بکاپ</span>
+                                <span class="spinner" id="backup-spinner" style="display: none; width: 14px; height: 14px; border: 2px solid white; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite;"></span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h3 style="font-size: 14px; margin-bottom: 10px;">بازیابی اطلاعات از فایل پشتیبان</h3>
+                        <div style="display: flex; flex-direction: column; gap: 12px;">
+                            <p style="font-size: 12px; color: var(--text-muted); line-height: 1.4;">
+                                فایل فشرده بکاپ (ZIP یا آرشیو رمزنگاری شده) را انتخاب کنید. پس از بارگذاری، سازگاری فایل بررسی شده و پیش‌نمایش آن نمایش داده می‌شود.
+                            </p>
+                            
+                            <div style="display: flex; flex-direction: column; gap: 5px;">
+                                <label style="font-size: 12px;">فایل بکاپ:</label>
+                                <input type="file" id="restore-file-input" accept=".zip,.enc" style="padding: 6px 12px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-input); color: var(--text-color);">
+                            </div>
+                            
+                            <div style="display: flex; flex-direction: column; gap: 5px;">
+                                <label style="font-size: 12px;">رمز عبور بکاپ (در صورت رمزنگاری بودن):</label>
+                                <input type="password" id="restore-password-input" placeholder="رمز عبور برای رمزگشایی بکاپ کامل" style="padding: 6px 12px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-input); color: var(--text-color);">
+                            </div>
+
+                            <button onclick="triggerRestoreVerify()" class="btn btn-danger" style="align-self: flex-start;">🔍 بررسی و بازیابی اطلاعات</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Scheduled Backup & Retention Card -->
+                <div class="card" style="margin: 0; height: 100%;">
+                    <h2 class="card-title">⚙️ تنظیمات زمان‌بندی و تحویل</h2>
+                    <form id="backup-settings-form" onsubmit="saveBackupSettings(event)">
+                        <div style="display: flex; flex-direction: column; gap: 15px;">
+                            
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: bold;">
+                                <input type="checkbox" id="backup-scheduled-enabled" name="backup_scheduled_enabled" value="1" {% if backup_scheduled_enabled == '1' %}checked{% endif %} style="width: auto;">
+                                فعال‌سازی پشتیبان‌گیری خودکار زمان‌بندی‌شده
+                            </label>
+
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                                <div class="form-group" style="margin:0;">
+                                    <label for="backup-interval">بازه زمانی پشتیبان‌گیری</label>
+                                    <select id="backup-interval" name="backup_interval">
+                                        <option value="6h" {% if backup_interval == '6h' %}selected{% endif %}>هر ۶ ساعت</option>
+                                        <option value="12h" {% if backup_interval == '12h' %}selected{% endif %}>هر ۱۲ ساعت</option>
+                                        <option value="daily" {% if backup_interval == 'daily' %}selected{% endif %}>روزانه (هر ۲۴ ساعت)</option>
+                                        <option value="weekly" {% if backup_interval == 'weekly' %}selected{% endif %}>هفتگی</option>
+                                        <option value="monthly" {% if backup_interval == 'monthly' %}selected{% endif %}>ماهانه</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="form-group" style="margin:0;">
+                                    <label for="backup-scheduled-type">نوع بکاپ خودکار</label>
+                                    <select id="backup-scheduled-type" name="backup_scheduled_type">
+                                        <option value="standard" {% if backup_scheduled_type == 'standard' %}selected{% endif %}>استاندارد (بدون فایل پیکربندی)</option>
+                                        <option value="full_dr" {% if backup_scheduled_type == 'full_dr' %}selected{% endif %}>کامل (شامل تنظیمات و سکرت‌ها)</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="form-group" style="margin:0;">
+                                <label for="backup-retention-max">حداکثر بکاپ‌های محلی برای نگهداری (سیاست حذف خودکار)</label>
+                                <input type="number" id="backup-retention-max" name="backup_retention_max" value="{{ backup_retention_max }}" required min="2" max="100">
+                                <small style="color:var(--text-muted); font-size:11px;">فایل‌های قدیمی‌تر به صورت خودکار حذف می‌شوند.</small>
+                            </div>
+
+                            <div style="border-top: 1px solid var(--border-color); padding-top: 15px; margin-top: 10px;">
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: bold; margin-bottom: 12px;">
+                                    <input type="checkbox" id="backup-telegram-enabled" name="backup_telegram_enabled" value="1" {% if backup_telegram_enabled == '1' %}checked{% endif %} style="width: auto;" onchange="toggleTelegramFields(this.checked)">
+                                    ارسال خودکار فایل بکاپ به تلگرام / بله
+                                </label>
+                                
+                                <div id="telegram-fields" style="display: {% if backup_telegram_enabled == '1' %}flex{% else %}none{% endif %}; flex-direction: column; gap: 12px;">
+                                    <div class="form-group" style="margin:0;">
+                                        <label for="backup-telegram-bot-token">توکن ربات (Bot Token)</label>
+                                        <input type="text" id="backup-telegram-bot-token" name="backup_telegram_bot_token" value="{{ backup_telegram_bot_token }}">
+                                    </div>
+                                    <div class="form-group" style="margin:0;">
+                                        <label for="backup-telegram-chat-id">شناسه چت مدیر (Admin Chat ID)</label>
+                                        <input type="text" id="backup-telegram-chat-id" name="backup_telegram_chat_id" value="{{ backup_telegram_chat_id }}">
+                                    </div>
+                                    <div class="form-group" style="margin:0;">
+                                        <label for="backup-telegram-api-server">آدرس سرور API ربات</label>
+                                        <input type="text" id="backup-telegram-api-server" name="backup_telegram_api_server" value="{{ backup_telegram_api_server }}" placeholder="https://api.telegram.org">
+                                        <small style="color:var(--text-muted); font-size:11px;">برای ربات بله از آدرس <code>https://tapi.bale.ai</code> استفاده کنید.</small>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <button type="submit" class="btn btn-primary" style="margin-top: 10px;">💾 ذخیره تنظیمات پشتیبان‌گیری</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Backup Archives Table -->
+            <div class="card">
+                <h2 class="card-title" style="display: flex; justify-content: space-between; align-items: center;">
+                    <span>📂 فایل‌های نسخه پشتیبان ذخیره شده</span>
+                    <button class="btn btn-secondary" onclick="loadBackups()" style="padding: 4px 10px; font-size: 12px;">↺ به‌روزرسانی لیست</button>
+                </h2>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>نام فایل پشتیبان</th>
+                                <th style="width: 150px;">زمان ایجاد</th>
+                                <th style="width: 100px;">حجم</th>
+                                <th>امضای دیجیتال (SHA256)</th>
+                                <th style="width: 150px;">وضعیت ارسال</th>
+                                <th style="width: 200px;">عملیات</th>
+                            </tr>
+                        </thead>
+                        <tbody id="backups-list-tbody">
+                            <!-- Populated via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Backup / Restore Action Logs -->
+            <div class="card">
+                <h2 class="card-title">📜 لاگ‌ها و رویدادهای پشتیبان‌گیری</h2>
+                <div class="table-container" style="max-height: 300px; overflow-y: auto;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width: 160px;">زمان</th>
+                                <th style="width: 100px;">عملیات</th>
+                                <th style="width: 100px;">کاربر</th>
+                                <th style="width: 80px;">وضعیت</th>
+                                <th style="width: 80px;">زمان پردازش</th>
+                                <th style="width: 90px;">حجم فایل</th>
+                                <th>جزئیات و توضیحات خطا</th>
+                            </tr>
+                        </thead>
+                        <tbody id="backup-logs-tbody">
+                            <!-- Populated via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div><!-- /panel-backup -->
 
         <!-- ═══ اسکن خودکار ═══ -->
         <div class="tab-panel" id="panel-automation" role="tabpanel">
@@ -1172,6 +1368,25 @@ hysteria2://..." required></textarea>
         </div>
     </div>
 
+    <!-- Restore Preview Modal -->
+    <div class="modal-overlay" id="restore-preview-modal" onclick="if(event.target===this)closeRestorePreview()">
+        <div class="modal-box" style="max-width: 600px;">
+            <div class="modal-head">
+                <h3>🔍 پیش‌نمایش بازیابی اطلاعات</h3>
+                <button class="modal-close" onclick="closeRestorePreview()" aria-label="بستن">&times;</button>
+            </div>
+            <div class="modal-body" style="line-height: 1.6;">
+                <div id="restore-preview-content">
+                    <!-- Loaded dynamically via JS -->
+                </div>
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-danger" id="restore-confirm-btn" onclick="executeRestore()">تایید و بازیابی نهایی</button>
+                <button class="btn btn-secondary" onclick="closeRestorePreview()">انصراف</button>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
         // Client app list + colors, shared by the breakdown widget and both
@@ -1235,7 +1450,7 @@ hysteria2://..." required></textarea>
         // ── Main tab navigation ──────────────────────────────────
         const TAB_TITLES = {
             dashboard: '📊 داشبورد', users: '👥 کاربران', configs: '📁 کانفیگ‌ها',
-            automation: '🤖 اسکن خودکار', settings: '⚙️ تنظیمات', logs: '📈 لاگ‌ها'
+            automation: '🤖 اسکن خودکار', settings: '⚙️ تنظیمات', backup: '💾 پشتیبان‌گیری', logs: '📈 لاگ‌ها'
         };
 
         function switchTab(name, btn) {
@@ -1254,6 +1469,9 @@ hysteria2://..." required></textarea>
                 fetchLogs();
             } else if (name === 'users') {
                 loadUsers();
+            } else if (name === 'backup') {
+                loadBackups();
+                loadBackupLogs();
             } else if (name === 'dashboard') {
                 // Charts created while their panel was hidden lay out at 0px;
                 // refit them once the dashboard is visible again.
@@ -2518,6 +2736,382 @@ hysteria2://..." required></textarea>
         }
 
         function closeUserHistory() { document.getElementById('history-modal').classList.remove('show'); }
+
+        // ── Backup and DR Javascript logic ──────────────────────────
+        function toggleTelegramFields(enabled) {
+            document.getElementById('telegram-fields').style.display = enabled ? 'flex' : 'none';
+        }
+
+        function toggleManualPassword(show) {
+            document.getElementById('manual-password-container').style.display = show ? 'flex' : 'none';
+        }
+
+        function formatBytes(bytes, decimals = 2) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+        }
+
+        function loadBackups() {
+            fetch('/adminpanel/api/backup/list')
+                .then(r => r.json())
+                .then(data => {
+                    const tbody = document.getElementById('backups-list-tbody');
+                    if (!data || data.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted)">هیچ نسخه پشتیبانی یافت نشد.</td></tr>';
+                        document.getElementById('health-total-size').textContent = '0 Bytes';
+                        return;
+                    }
+                    
+                    let totalSize = 0;
+                    tbody.innerHTML = data.map(b => {
+                        totalSize += b.size;
+                        const isDR = b.filename.includes('full_dr');
+                        const isEmerg = b.filename.includes('emergency');
+                        
+                        let labelClass = 'badge-standard';
+                        let labelText = 'استاندارد';
+                        if (isEmerg) {
+                            labelClass = 'badge-danger';
+                            labelText = 'پشتیبان اضطراری';
+                        } else if (isDR) {
+                            labelClass = 'badge-warning';
+                            labelText = 'کامل (DR)';
+                        }
+                        
+                        const deliveryBadge = b.delivery_status === 'SENT' 
+                            ? `<span style="background:var(--success-soft);color:var(--success);padding:2px 8px;border-radius:10px;font-size:11px">ارسال شده</span>`
+                            : b.delivery_status === 'FAILED'
+                            ? `<span style="background:var(--danger-soft);color:var(--danger);padding:2px 8px;border-radius:10px;font-size:11px">خطای ارسال</span>`
+                            : b.delivery_status === 'PENDING'
+                            ? `<span style="background:var(--warning-soft);color:var(--warning);padding:2px 8px;border-radius:10px;font-size:11px">در انتظار ارسال</span>`
+                            : `<span style="background:var(--surface-2);color:var(--text-muted);padding:2px 8px;border-radius:10px;font-size:11px">ارسال نشده</span>`;
+
+                        return `<tr>
+                            <td style="direction:ltr;text-align:right">
+                                <span class="badge ${labelClass}" style="margin-left:5px;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:bold;">${labelText}</span>
+                                <code>${escapeHtml(b.filename)}</code>
+                            </td>
+                            <td>${escapeHtml(b.created_at)}</td>
+                            <td>${formatBytes(b.size)}</td>
+                            <td><code style="font-size:11px;word-break:break-all">${escapeHtml(b.checksum.substring(0, 16))}...</code></td>
+                            <td>${deliveryBadge}</td>
+                            <td>
+                                <a href="/adminpanel/api/backup/download/${b.filename}" class="btn btn-secondary" style="padding:4px 8px;font-size:12px;" title="دانلود">📥 دانلود</a>
+                                <button class="btn btn-secondary" onclick="sendBackup('${b.filename}')" style="padding:4px 8px;font-size:12px;" title="ارسال به پیام‌رسان">📬 ارسال</button>
+                                <button class="btn btn-danger" onclick="deleteBackup('${b.filename}')" style="padding:4px 8px;font-size:12px;" title="حذف">🗑️</button>
+                            </td>
+                        </tr>`;
+                    }).join('');
+                    
+                    document.getElementById('health-total-size').textContent = formatBytes(totalSize);
+                })
+                .catch(err => {
+                    showAlert('خطا در بارگذاری فایل‌های بکاپ: ' + err, 'error');
+                });
+        }
+
+        function loadBackupLogs() {
+            fetch('/adminpanel/api/backup/logs')
+                .then(r => r.json())
+                .then(data => {
+                    const tbody = document.getElementById('backup-logs-tbody');
+                    if (!data || data.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted)">هیچ رویدادی ثبت نشده است.</td></tr>';
+                        return;
+                    }
+                    
+                    let lastSuccess = '—';
+                    let lastFailed = '—';
+                    let lastDelivery = '—';
+                    
+                    tbody.innerHTML = data.map(l => {
+                        const isSuccess = l.status === 'SUCCESS';
+                        
+                        if (l.operation === 'backup') {
+                            if (isSuccess && lastSuccess === '—') lastSuccess = l.time;
+                            if (!isSuccess && lastFailed === '—') lastFailed = l.time;
+                            if (l.delivery_status === 'SENT' && lastDelivery === '—') lastDelivery = l.time;
+                        }
+
+                        const statusBadge = isSuccess
+                            ? `<span style="background:var(--success-soft);color:var(--success);padding:2px 8px;border-radius:10px;font-size:11px">موفق</span>`
+                            : `<span style="background:var(--danger-soft);color:var(--danger);padding:2px 8px;border-radius:10px;font-size:11px">ناموفق</span>`;
+
+                        const opBadge = l.operation === 'backup'
+                            ? `<span style="background:var(--primary-soft);color:var(--primary);padding:2px 8px;border-radius:10px;font-size:11px">بکاپ</span>`
+                            : l.operation === 'restore'
+                            ? `<span style="background:var(--danger-soft);color:var(--danger);padding:2px 8px;border-radius:10px;font-size:11px">بازیابی</span>`
+                            : `<span style="background:var(--surface-2);color:var(--text-muted);padding:2px 8px;border-radius:10px;font-size:11px">${l.operation}</span>`;
+
+                        return `<tr>
+                            <td>${escapeHtml(l.time)}</td>
+                            <td>${opBadge}</td>
+                            <td>${escapeHtml(l.user || 'SYSTEM')}</td>
+                            <td>${statusBadge}</td>
+                            <td>${parseFloat(l.duration || 0).toFixed(2)} ثانیه</td>
+                            <td>${l.backup_size ? formatBytes(l.backup_size) : '—'}</td>
+                            <td style="text-align:right;font-size:12px;color:${isSuccess ? 'var(--text-color)' : 'var(--danger)'}">
+                                ${escapeHtml(l.error_message || 'با موفقیت انجام شد')}
+                            </td>
+                        </tr>`;
+                    }).join('');
+
+                    document.getElementById('health-last-success').textContent = lastSuccess;
+                    document.getElementById('health-last-failed').textContent = lastFailed;
+                    document.getElementById('health-last-delivery').textContent = lastDelivery;
+                })
+                .catch(err => {
+                    showAlert('خطا در دریافت لاگ‌ها: ' + err, 'error');
+                });
+        }
+
+        function triggerManualBackup() {
+            const backupType = document.querySelector('input[name="manual_backup_type"]:checked').value;
+            const password = document.getElementById('manual_backup_password').value;
+            
+            const btn = document.getElementById('btn-create-backup');
+            const spinner = document.getElementById('backup-spinner');
+            
+            btn.disabled = true;
+            spinner.style.display = 'inline-block';
+            
+            fetch('/adminpanel/api/backup/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ backup_type: backupType, password: password })
+            })
+            .then(r => r.json())
+            .then(res => {
+                btn.disabled = false;
+                spinner.style.display = 'none';
+                
+                if (res.success) {
+                    showAlert('پشتیبان‌گیری با موفقیت انجام شد. دانلود آغاز می‌شود...', 'success');
+                    
+                    const link = document.createElement('a');
+                    link.href = `/adminpanel/api/backup/download/${res.filename}`;
+                    link.download = res.filename;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    
+                    loadBackups();
+                    loadBackupLogs();
+                } else {
+                    showAlert(res.message, 'error');
+                }
+            })
+            .catch(err => {
+                btn.disabled = false;
+                spinner.style.display = 'none';
+                showAlert('خطا در پشتیبان‌گیری: ' + err, 'error');
+            });
+        }
+
+        function deleteBackup(filename) {
+            if (!confirm(`آیا از حذف نسخه پشتیبان «${filename}» اطمینان دارید؟`)) return;
+            if (!confirm('آیا واقعاً مطمئن هستید؟ این فایل برای همیشه پاک خواهد شد.')) return;
+            
+            fetch(`/adminpanel/api/backup/${filename}`, { method: 'DELETE' })
+                .then(r => r.json())
+                .then(res => {
+                    showAlert(res.message, res.success ? 'success' : 'error');
+                    loadBackups();
+                    loadBackupLogs();
+                })
+                .catch(err => {
+                    showAlert('خطا در حذف فایل: ' + err, 'error');
+                });
+        }
+
+        function sendBackup(filename) {
+            showAlert('در حال ارسال فایل به پیام‌رسان...', 'info');
+            fetch(`/adminpanel/api/backup/send/${filename}`, { method: 'POST' })
+                .then(r => r.json())
+                .then(res => {
+                    showAlert(res.message, res.success ? 'success' : 'error');
+                    loadBackups();
+                    loadBackupLogs();
+                })
+                .catch(err => {
+                    showAlert('خطا در ارسال فایل: ' + err, 'error');
+                });
+        }
+
+        function saveBackupSettings(event) {
+            event.preventDefault();
+            const form = event.target;
+            const data = new FormData(form);
+            
+            fetch('/adminpanel/api/settings/backup', {
+                method: 'POST',
+                body: data
+            })
+            .then(r => r.json())
+            .then(res => {
+                showAlert(res.message, res.success ? 'success' : 'error');
+            })
+            .catch(err => {
+                showAlert('خطا در ذخیره تنظیمات: ' + err, 'error');
+            });
+        }
+
+        let _restoreFileToUpload = null;
+        let _restorePasswordToUse = null;
+
+        function closeRestorePreview() {
+            document.getElementById('restore-preview-modal').classList.remove('show');
+            _restoreFileToUpload = null;
+            _restorePasswordToUse = null;
+        }
+
+        function triggerRestoreVerify() {
+            const fileInput = document.getElementById('restore-file-input');
+            const password = document.getElementById('restore-password-input').value;
+            
+            if (fileInput.files.length === 0) {
+                showAlert('لطفاً ابتدا فایل پشتیبان را انتخاب کنید.', 'error');
+                return;
+            }
+            
+            const file = fileInput.files[0];
+            const data = new FormData();
+            data.append('backup_file', file);
+            if (password) data.append('password', password);
+            
+            showAlert('در حال اعتبارسنجی فایل پشتیبان...', 'info');
+            
+            fetch('/adminpanel/api/backup/verify', {
+                method: 'POST',
+                body: data
+            })
+            .then(r => r.json())
+            .then(res => {
+                if (res.success) {
+                    _restoreFileToUpload = file;
+                    _restorePasswordToUse = password;
+                    
+                    const isDR = res.stats.backup_type === 'full_dr';
+                    const isWarning = res.status.includes('Warning');
+                    
+                    let compatibilityColor = 'var(--success)';
+                    if (isWarning) compatibilityColor = 'var(--warning)';
+                    if (res.status === 'Incompatible') compatibilityColor = 'var(--danger)';
+
+                    let html = `
+                        <div style="background:var(--surface-2);border-radius:8px;padding:12px 15px;margin-bottom:15px;">
+                            <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+                                <span>نوع بکاپ:</span>
+                                <strong>${isDR ? 'کامل (Disaster Recovery)' : 'استاندارد'}</strong>
+                            </div>
+                            <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+                                <span>زمان ایجاد بکاپ:</span>
+                                <strong style="direction:ltr">${escapeHtml(res.stats.created_at || 'نامعلوم')}</strong>
+                            </div>
+                            <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+                                <span>نسخه برنامه سرور مبدا:</span>
+                                <strong>${escapeHtml(res.stats.app_version || 'نامعلوم')}</strong>
+                            </div>
+                            <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+                                <span>سازگاری فایل:</span>
+                                <strong style="color:${compatibilityColor}">${escapeHtml(res.status)}</strong>
+                            </div>
+                            <div style="font-size:12px;color:var(--text-muted);margin-top:5px;text-align:right">
+                                ${escapeHtml(res.message)}
+                            </div>
+                        </div>
+                        
+                        <div style="margin-bottom:15px;">
+                            <h4 style="font-size:13px;margin-bottom:6px;">📊 آمار رکوردهای قابل بازیابی:</h4>
+                            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;">
+                                <div style="background:var(--surface-2);padding:8px 10px;border-radius:6px;text-align:center">
+                                    <div style="font-size:11px;color:var(--text-muted)">کاربران</div>
+                                    <strong>${res.stats.users_count}</strong>
+                                </div>
+                                <div style="background:var(--surface-2);padding:8px 10px;border-radius:6px;text-align:center">
+                                    <div style="font-size:11px;color:var(--text-muted)">کانفیگ‌ها</div>
+                                    <strong>${res.stats.configs_count}</strong>
+                                </div>
+                                <div style="background:var(--surface-2);padding:8px 10px;border-radius:6px;text-align:center">
+                                    <div style="font-size:11px;color:var(--text-muted)">منابع اسکن</div>
+                                    <strong>${res.stats.sources_count}</strong>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    if (isDR) {
+                        html += `
+                            <div style="border:1px solid var(--warning);background:rgba(243,156,18,0.1);padding:10px 12px;border-radius:6px;margin-bottom:15px;">
+                                <h4 style="color:var(--warning);font-size:13px;margin-bottom:5px;">⚠️ هشدار امنیتی بکاپ کامل:</h4>
+                                <p style="font-size:12px;color:var(--text-color);line-height:1.4;">
+                                    این فایل حاوی فایل پیکربندی سرور مبدا (.env) شامل کلیدهای امنیتی و اطلاعات اتصال است.
+                                    پیشنهاد می‌شود فایل تنظیمات بازنویسی نشود تا تداخلی ایجاد نگردد.
+                                </p>
+                                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:bold;margin-top:10px;font-size:12px;">
+                                    <input type="checkbox" id="restore-env-checkbox" style="width:auto;">
+                                    بله، فایل تنظیمات .env بازنویسی شود (غیر ایمن)
+                                </label>
+                            </div>
+                        `;
+                    }
+                    
+                    document.getElementById('restore-preview-content').innerHTML = html;
+                    document.getElementById('restore-preview-modal').classList.add('show');
+                } else {
+                    showAlert(res.message, 'error');
+                }
+            })
+            .catch(err => {
+                showAlert('خطا در بررسی سازگاری بکاپ: ' + err, 'error');
+            });
+        }
+
+        function executeRestore() {
+            if (!_restoreFileToUpload) return;
+            
+            const restoreEnvCheckbox = document.getElementById('restore-env-checkbox');
+            const restoreEnv = restoreEnvCheckbox ? restoreEnvCheckbox.checked : false;
+            
+            if (restoreEnv) {
+                if (!confirm('توجه: شما تیک بازنویسی فایل تنظیمات .env را زده‌اید. این کار ممکن است اتصال پنل را قطع کند. آیا از این کار مطمئن هستید؟')) {
+                    return;
+                }
+            }
+            
+            if (!confirm('توجه: با تایید نهایی، دیتابیس فعلی پاک شده و اطلاعات فایل بکاپ جایگزین خواهند شد. یک نسخه پشتیبان اضطراری از داده‌های فعلی شما قبل از بازیابی ساخته می‌شود تا در صورت خطا بازگردانده شوید. آیا ادامه می‌دهید؟')) {
+                return;
+            }
+            
+            const data = new FormData();
+            data.append('backup_file', _restoreFileToUpload);
+            if (_restorePasswordToUse) data.append('password', _restorePasswordToUse);
+            data.append('restore_env', restoreEnv ? 'true' : 'false');
+            
+            closeRestorePreview();
+            showAlert('در حال بازیابی پایگاه داده و فایل‌ها...', 'info');
+            
+            fetch('/adminpanel/api/backup/restore', {
+                method: 'POST',
+                body: data
+            })
+            .then(r => r.json())
+            .then(res => {
+                if (res.success) {
+                    alert('بازیابی داده‌ها با موفقیت انجام شد! پنل ادمین جهت اعمال تغییرات مجدداً لود خواهد شد.');
+                    window.location.reload();
+                } else {
+                    showAlert(res.message, 'error');
+                }
+            })
+            .catch(err => {
+                showAlert('خطا در اجرای بازیابی: ' + err, 'error');
+            });
+        }
 
         window.onload = function () {
             loadStats();

@@ -562,4 +562,255 @@ def user_history_route(user_id):
     data = get_user_history(user_id)
     if data is None:
         return jsonify({'success': False, 'message': 'کاربر پیدا نشد'}), 404
-    return jsonify(data)
+    return jsonify(data)
+
+
+# ─── Backup & Disaster Recovery endpoints ─────────────────────
+
+@admin_api_bp.route('/adminpanel/api/backup/create', methods=['POST'])
+def create_backup_route():
+    err = _require_login()
+    if err:
+        return err
+    
+    data = request.form if request.form else _get_json_safe()
+    backup_type = data.get('backup_type', 'standard')
+    password = data.get('password') or None
+    
+    from services.backup_service import BackupService
+    try:
+        from config import Config
+        res = BackupService.create_backup(user=Config.ADMIN_USERNAME, backup_type=backup_type, password=password)
+        return jsonify(res)
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'خطا در ایجاد بکاپ: {str(e)}'})
+
+
+@admin_api_bp.route('/adminpanel/api/backup/list', methods=['GET'])
+def list_backups_route():
+    err = _require_login()
+    if err:
+        return err
+    from services.backup_service import BackupService
+    try:
+        backups = BackupService.list_backups()
+        return jsonify(backups)
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'خطا در دریافت لیست بکاپ‌ها: {str(e)}'}), 500
+
+
+@admin_api_bp.route('/adminpanel/api/backup/download/<filename>', methods=['GET'])
+def download_backup_route(filename):
+    err = _require_login()
+    if err:
+        return err
+    
+    from services.backup_service import BackupService
+    import os
+    backup_dir = BackupService.get_backup_dir()
+    filepath = os.path.join(backup_dir, filename)
+    
+    if os.path.dirname(os.path.abspath(filepath)) != os.path.abspath(backup_dir):
+        return jsonify({'success': False, 'message': 'مسیر نامعتبر است'}), 400
+        
+    if not os.path.exists(filepath) or not os.path.isfile(filepath):
+        return jsonify({'success': False, 'message': 'فایل یافت نشد'}), 404
+        
+    from flask import send_file
+    return send_file(filepath, as_attachment=True, download_name=filename)
+
+
+@admin_api_bp.route('/adminpanel/api/backup/<filename>', methods=['DELETE', 'POST'])
+def delete_backup_route(filename):
+    err = _require_login()
+    if err:
+        return err
+    
+    from services.backup_service import BackupService
+    from config import Config
+    try:
+        success = BackupService.delete_backup(filename, user=Config.ADMIN_USERNAME)
+        return jsonify({'success': success, 'message': 'فایل بکاپ با موفقیت حذف شد' if success else 'فایل یافت نشد'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'خطا در حذف فایل: {str(e)}'})
+
+
+@admin_api_bp.route('/adminpanel/api/backup/verify', methods=['POST'])
+def verify_backup_route():
+    err = _require_login()
+    if err:
+        return err
+        
+    if 'backup_file' not in request.files:
+        return jsonify({'success': False, 'message': 'هیچ فایلی ارسال نشده است'}), 400
+        
+    file = request.files['backup_file']
+    if file.filename == '':
+        return jsonify({'success': False, 'message': 'نام فایل خالی است'}), 400
+        
+    password = request.form.get('password') or None
+    
+    import tempfile
+    import os
+    temp_fd, temp_path = tempfile.mkstemp(suffix='.zip')
+    try:
+        os.close(temp_fd)
+        file.save(temp_path)
+        
+        from services.backup_service import BackupService
+        res = BackupService.verify_backup(temp_path, password)
+        return jsonify(res)
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'خطا در بررسی فایل: {str(e)}'})
+    finally:
+        try:
+            os.unlink(temp_path)
+        except Exception:
+            pass
+
+
+@admin_api_bp.route('/adminpanel/api/backup/restore', methods=['POST'])
+def restore_backup_route():
+    err = _require_login()
+    if err:
+        return err
+        
+    if 'backup_file' not in request.files:
+        return jsonify({'success': False, 'message': 'هیچ فایلی ارسال نشده است'}), 400
+        
+    file = request.files['backup_file']
+    if file.filename == '':
+        return jsonify({'success': False, 'message': 'نام فایل خالی است'}), 400
+        
+    password = request.form.get('password') or None
+    restore_env = request.form.get('restore_env') == 'true'
+    
+    import tempfile
+    import os
+    temp_fd, temp_path = tempfile.mkstemp(suffix='.zip')
+    try:
+        os.close(temp_fd)
+        file.save(temp_path)
+        
+        from services.backup_service import BackupService
+        from config import Config
+        res = BackupService.restore_backup(temp_path, password=password, restore_env=restore_env, user=Config.ADMIN_USERNAME)
+        return jsonify(res)
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'خطا در بازیابی بکاپ: {str(e)}'})
+    finally:
+        try:
+            os.unlink(temp_path)
+        except Exception:
+            pass
+
+
+@admin_api_bp.route('/adminpanel/api/backup/logs', methods=['GET'])
+def backup_logs_route():
+    err = _require_login()
+    if err:
+        return err
+    
+    from database import get_db
+    db = get_db()
+    try:
+        rows = db.execute("SELECT * FROM backup_logs ORDER BY time DESC LIMIT 100").fetchall()
+        logs = [dict(r) for r in rows]
+        for l in logs:
+            l['time'] = str(l['time'])
+        return jsonify(logs)
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'خطا در دریافت لاگ‌ها: {str(e)}'}), 500
+    finally:
+        db.close()
+
+
+@admin_api_bp.route('/adminpanel/api/backup/send/<filename>', methods=['POST'])
+def send_backup_route(filename):
+    err = _require_login()
+    if err:
+        return err
+        
+    from services.backup_service import BackupService
+    import os
+    backup_dir = BackupService.get_backup_dir()
+    filepath = os.path.join(backup_dir, filename)
+    
+    if os.path.dirname(os.path.abspath(filepath)) != os.path.abspath(backup_dir):
+        return jsonify({'success': False, 'message': 'مسیر نامعتبر است'}), 400
+        
+    if not os.path.exists(filepath) or not os.path.isfile(filepath):
+        return jsonify({'success': False, 'message': 'فایل بکاپ یافت نشد'}), 404
+        
+    try:
+        api_server = get_setting('backup_telegram_api_server', 'https://api.telegram.org').strip()
+        bot_token = get_setting('backup_telegram_bot_token', '').strip()
+        chat_id = get_setting('backup_telegram_chat_id', '').strip()
+
+        if not bot_token or not chat_id:
+            return jsonify({'success': False, 'message': 'توکن یا چت‌آیدی ربات تلگرام/بله تنظیم نشده است.'})
+
+        if not api_server.startswith('http'):
+            api_server = 'https://' + api_server
+        api_server = api_server.rstrip('/')
+
+        url = f"{api_server}/bot{bot_token}/sendDocument"
+        
+        # Calculate checksum for filename
+        from services.backup_service import _sha256_checksum
+        checksum = _sha256_checksum(filepath)
+        
+        with open(filepath, 'rb') as f:
+            files = {'document': (filename, f)}
+            data = {
+                'chat_id': chat_id,
+                'caption': f"📬 ارسال دستی نسخه پشتیبان\n📝 نام فایل: {filename}\n📦 شناسه هش: {checksum[:12]}..."
+            }
+            resp = requests.post(url, files=files, data=data, timeout=30)
+            
+        if resp.status_code == 200:
+            db = get_db()
+            db.execute("UPDATE backup_logs SET delivery_status = 'SENT', error_message = NULL WHERE checksum = ?", (checksum,))
+            db.commit()
+            db.close()
+            return jsonify({'success': True, 'message': 'فایل بکاپ با موفقیت به پیام‌رسان ارسال شد.'})
+        else:
+            return jsonify({'success': False, 'message': f'خطا در ارسال به سرور پیام‌رسان ({resp.status_code}): {resp.text}'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'خطا در ارسال فایل: {str(e)}'})
+
+
+@admin_api_bp.route('/adminpanel/api/settings/backup', methods=['POST'])
+def save_backup_settings_route():
+    err = _require_login()
+    if err:
+        return err
+        
+    data = request.form if request.form else _get_json_safe()
+    
+    from database import get_db
+    db = get_db()
+    try:
+        keys = [
+            'backup_scheduled_enabled', 'backup_interval', 'backup_scheduled_type', 'backup_retention_max',
+            'backup_telegram_enabled', 'backup_telegram_bot_token', 'backup_telegram_chat_id', 'backup_telegram_api_server'
+        ]
+        for key in keys:
+            if key in data:
+                val = str(data[key]).strip()
+                db.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', (key, val))
+        
+        # Checkbox handling
+        if request.form:
+            sched_val = '1' if 'backup_scheduled_enabled' in request.form else '0'
+            db.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', ('backup_scheduled_enabled', sched_val))
+            
+            tg_val = '1' if 'backup_telegram_enabled' in request.form else '0'
+            db.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', ('backup_telegram_enabled', tg_val))
+            
+        db.commit()
+        return jsonify({'success': True, 'message': 'تنظیمات پشتیبان‌گیری با موفقیت ذخیره شد'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'خطا در ذخیره تنظیمات: {e}'})
+    finally:
+        db.close()

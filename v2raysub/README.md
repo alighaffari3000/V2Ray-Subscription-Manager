@@ -182,3 +182,28 @@ sudo systemctl restart nginx
 * Database configuration and environment settings are kept inside `.env` and `database.db`, both of which are securely ignored in git.
 * Remember to change the default admin credentials inside `.env` immediately upon installation.
 * اطلاعات ورود در فایل محلی `.env` و اطلاعات پایگاه داده در `database.db` ذخیره می‌شوند که برای حفظ امنیت در گیت کامیت نمی‌شوند. لطفاً پس از نصب اول، اطلاعات ورود پیش‌فرض را تغییر دهید.
+
+---
+
+## 💾 Backup & Disaster Recovery / پشتیبان‌گیری و بازیابی اطلاعات (DR)
+
+The application features a production-grade Backup and Disaster Recovery system that ensures your critical user data, subscription paths, configuration items, and health scan histories are safe and recoverable.
+
+سیستم پیشرفته‌ی پشتیبان‌گیری و بازیابی فاجعه (DR) امکان حفاظت کامل از کاربران، تنظیمات، تاریخچه بازدید و کانفیگ‌های فعال را برای ادمین‌ها فراهم می‌کند.
+
+### 1. Backup Profiles / انواع نسخه‌های پشتیبان
+- **Standard Backup (استاندارد):** Packs all database tables and core template assets. **Excludes host credentials/secrets (`.env`)**. Suitable for migrating panel data from one server to another. Requires no passwords or encryption.
+- **Full Disaster Recovery Backup (کامل):** Packages all tables and host secrets (`.env`). Supports optional **AES-256-GCM** encryption. Designed strictly to restore state on the same machine.
+
+### 2. Auto-Scheduled Backups & Message Delivery / پشتیبان‌گیری خودکار و ارسال به پیام‌رسان
+- Backups can be scheduled to run periodically: **Every 6 hours, 12 hours, Daily, Weekly, or Monthly**.
+- Automatic cleanup limits local storage (e.g. keeping only the last 30 backups) via a retention policy.
+- Automated deliveries automatically upload the encrypted/unencrypted ZIP archive to a **Telegram** or **Bale** bot chat using custom Bot API servers (e.g. `https://tapi.bale.ai` for Bale).
+- If network connection fails, delivery triggers **3 retries with exponential backoff** (1m, 5m, 15m) to ensure delivery.
+
+### 3. Safe Restore with Emergency Rollback / بازیابی امن و برگشت در صورت خطا
+- **Verification Pre-flight:** Uploaded archives are validated in-memory first (checking ZIP structure, manifest configurations, compatible versions, and SHA256 integrity checksums).
+- **Emergency Safeguard:** The system automatically generates a local emergency restore point right before executing any restore.
+- **Transactional Rollback:** Database entries are overwritten inside a transaction. If any database or file operation fails mid-restore, the database is rolled back and local files are automatically reverted back to the emergency backup.
+- **Service Reload:** Once restored successfully, scheduler threads are gracefully rebooted to apply configuration changes without downtime.
+- **Safe `.env` Overwrite:** Full DR restores exclude the `.env` file by default to prevent broken database credentials. Administrators must explicitly toggle configuration overwrite and confirm.
