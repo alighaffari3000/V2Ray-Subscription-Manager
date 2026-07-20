@@ -24,3 +24,12 @@ instance/
 dist/
 build/
 *.egg-info/
+
+# graphify knowledge-graph output (rebuilt locally, never committed)
+graphify-out/
+
+# Runtime data (backups, generated storage) — must not be committed
+storage/
+
+# Vendored source archive (large blob; not needed in the repo)
+V2RayDAR-main.zip
