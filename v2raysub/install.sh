@@ -353,7 +353,9 @@ if [ "$EXISTING_INSTALL" = "0" ]; then
     write_file .env \
         "ADMIN_USERNAME=$admin_username" \
         "ADMIN_PASSWORD=$HASHED_PASSWORD" \
-        "SECRET_KEY=$SECRET_KEY"
+        "SECRET_KEY=$SECRET_KEY" \
+        "# For a global login rate-limit across gunicorn workers, run Redis and set:" \
+        "# RATELIMIT_STORAGE_URI=redis://127.0.0.1:6379"
     chmod 600 .env
 else
     echo -e "${GREEN}[5/8] Keeping existing .env (admin login and secret key unchanged).${NC}"

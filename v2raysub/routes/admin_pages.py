@@ -13,6 +13,7 @@ from services.path_service import get_primary_path, get_other_paths
 from services.config_service import get_all_configs_for_admin
 from services.user_service import get_all_users
 from utils.misc import get_base_url
+from utils.csrf import validate_csrf
 
 admin_pages_bp = Blueprint('admin_pages', __name__)
 
@@ -35,6 +36,14 @@ def login():
         return redirect(url_for('admin_pages.admin'))
 
     if request.method == 'POST':
+        # CSRF: the login form carries a hidden token issued on the GET render.
+        from flask import current_app
+        if current_app.config.get('CSRF_ENABLED', True):
+            sent = request.form.get('csrf_token', '')
+            expected = session.get('csrf_token', '')
+            if not expected or not compare_digest(str(sent), str(expected)):
+                return render_template('login.html', error='نشست منقضی شده است. صفحه را تازه‌سازی کرده و دوباره تلاش کنید.')
+
         username = request.form.get('username', '')
         password = request.form.get('password', '')
 
@@ -49,8 +58,12 @@ def login():
 
     return render_template('login.html')
 
-@admin_pages_bp.route('/adminpanel/logout')
+@admin_pages_bp.route('/adminpanel/logout', methods=['POST'])
 def logout():
+    # POST-only + CSRF so a cross-site GET can't force a logout.
+    err = validate_csrf()
+    if err:
+        return err
     session.clear()
     return redirect(url_for('admin_pages.login'))
 
@@ -87,6 +100,8 @@ def admin():
     cleanup_policy = get_setting('cleanup_policy', 'disable')
     early_stop_enabled = get_setting('early_stop_enabled', '1')
     scan_timeout = get_setting('scan_timeout', '1200')
+    device_window_days = get_setting('device_window_days', '7')
+    device_grace_hours = get_setting('device_grace_hours', '0')
 
     # Backup Settings
     backup_scheduled_enabled = get_setting('backup_scheduled_enabled', '0')
@@ -125,6 +140,8 @@ def admin():
         cleanup_policy=cleanup_policy,
         early_stop_enabled=early_stop_enabled,
         scan_timeout=scan_timeout,
+        device_window_days=device_window_days,
+        device_grace_hours=device_grace_hours,
         backup_scheduled_enabled=backup_scheduled_enabled,
         backup_interval=backup_interval,
         backup_scheduled_type=backup_scheduled_type,

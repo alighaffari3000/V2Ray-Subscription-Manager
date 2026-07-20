@@ -4,6 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
     <title>پنل مدیریت سابسکریپشن V2Ray</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700&display=swap');
@@ -730,6 +731,14 @@
                         <label for="setting-scan-timeout">حداکثر زمان مجاز اسکن (دقیقه)</label>
                         <input type="number" id="setting-scan-timeout" name="scan_timeout" value="{{ (scan_timeout|int / 60)|round|int }}" required min="1">
                     </div>
+                    <div class="form-group" style="margin:0;">
+                        <label for="setting-device-window">پنجره‌ی فعال بودن دستگاه (روز)</label>
+                        <input type="number" id="setting-device-window" name="device_window_days" value="{{ device_window_days }}" required min="1" title="دستگاهی که در این بازه دیده نشود، اسلاتش آزاد می‌شود">
+                    </div>
+                    <div class="form-group" style="margin:0;">
+                        <label for="setting-device-grace">مهلت اولیه بدون محدودیت دستگاه (ساعت)</label>
+                        <input type="number" id="setting-device-grace" name="device_grace_hours" value="{{ device_grace_hours }}" required min="0" title="۰ یعنی محدودیت از همان ابتدا اعمال شود">
+                    </div>
                 </div>
                 <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 18px;">
                     <input type="checkbox" id="setting-early-stop" name="early_stop_enabled" value="1" {% if early_stop_enabled == '1' %}checked{% endif %} style="width: auto;">
@@ -1211,7 +1220,7 @@ hysteria2://..." required></textarea>
                             <td>
                                 <div class="action-btns">
                                     <button class="btn btn-secondary" style="padding: 6px 10px;"
-                                        onclick="copyConfig('{{ config.config_text | safe }}')"
+                                        onclick="copyConfig(this)"
                                         title="کپی کانفیگ">📋</button>
                                     <button class="btn {% if config.is_enabled %}btn-secondary{% else %}btn-success{% endif %}" style="padding: 6px 10px;"
                                         onclick="toggleConfigEnabled({{ config.id }}, {% if config.is_enabled %}false{% else %}true{% endif %})"
@@ -1351,7 +1360,15 @@ hysteria2://..." required></textarea>
             </div>
             <div class="modal-body">
                 <div id="history-summary" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-bottom:18px;"></div>
-                <h3 style="font-size:14px; margin-bottom:10px;">🖥️ دستگاه‌ها (User-Agentها)</h3>
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+                    <h3 style="font-size:14px; margin:0;">📱 دستگاه‌های ثبت‌شده <span id="history-devices-count" style="color:var(--text-muted);font-weight:400"></span></h3>
+                    <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px" onclick="resetUserDevices()">پاک‌کردن همه دستگاه‌ها</button>
+                </div>
+                <div class="table-container" style="margin-bottom:18px;">
+                    <table><thead><tr><th>شبکه</th><th>کلاینت</th><th style="width:60px">دفعات</th><th style="width:150px">آخرین بار</th><th style="width:60px"></th></tr></thead>
+                        <tbody id="history-devices"></tbody></table>
+                </div>
+                <h3 style="font-size:14px; margin-bottom:10px;">🖥️ کلاینت‌ها (User-Agentها)</h3>
                 <div class="table-container" style="margin-bottom:18px;">
                     <table><thead><tr><th>User-Agent</th><th style="width:70px">دفعات</th><th style="width:150px">آخرین بار</th></tr></thead>
                         <tbody id="history-uas"></tbody></table>
@@ -1389,6 +1406,26 @@ hysteria2://..." required></textarea>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
+        // CSRF: transparently attach the per-session token to every same-origin
+        // state-changing request, so all fetch() calls below are covered without
+        // each having to add the header itself.
+        const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+        (function () {
+            const _fetch = window.fetch;
+            window.fetch = function (input, init) {
+                init = init || {};
+                const method = (init.method || (typeof input === 'object' && input.method) || 'GET').toUpperCase();
+                const url = (typeof input === 'string') ? input : (input && input.url) || '';
+                const sameOrigin = !/^https?:\/\//i.test(url) || url.startsWith(window.location.origin);
+                if (sameOrigin && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+                    const headers = new Headers(init.headers || (typeof input === 'object' ? input.headers : undefined) || {});
+                    if (!headers.has('X-CSRF-Token')) headers.set('X-CSRF-Token', CSRF_TOKEN);
+                    init.headers = headers;
+                }
+                return _fetch.call(this, input, init);
+            };
+        })();
+
         // Client app list + colors, shared by the breakdown widget and both
         // client-chart render paths below — a single copy so the set of
         // known clients can't drift out of sync between them (must match
@@ -1531,15 +1568,21 @@ hysteria2://..." required></textarea>
                             statusBadge = '<span class="badge" style="padding: 2px 8px; font-size: 11px; background: #f39c12; color: #fff;">متوقف</span>';
                         } else if (log.status === 'USER_DISABLED') {
                             statusBadge = '<span class="badge" style="padding: 2px 8px; font-size: 11px; background: #7f8c8d; color: #fff;">کاربر غیرفعال</span>';
+                        } else if (log.status === 'DEVICE_LIMIT') {
+                            statusBadge = '<span class="badge" style="padding: 2px 8px; font-size: 11px; background: #f39c12; color: #fff;">سقف دستگاه</span>';
                         } else {
                             statusBadge = `<span class="badge badge-danger" style="padding: 2px 8px; font-size: 11px; background: #e74c3c;">خطا (${log.status})</span>`;
                         }
 
+                        // ip_address, request_path and user_agent are attacker-controlled
+                        // (User-Agent header / requested path), so escape them before
+                        // injecting via innerHTML to prevent stored XSS in the admin panel.
+                        const ua = escapeHtml(log.user_agent);
                         tr.innerHTML = `
                             <td>${new Date(log.accessed_at).toLocaleString('fa-IR')}</td>
-                            <td style="direction: ltr;">${log.ip_address}</td>
-                            <td style="direction: ltr; font-size: 12px; font-weight: bold;">/sub/${log.request_path || ''}</td>
-                            <td style="direction: ltr; font-size: 11px; max-width: 250px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;" title="${log.user_agent}">${log.user_agent}</td>
+                            <td style="direction: ltr;">${escapeHtml(log.ip_address)}</td>
+                            <td style="direction: ltr; font-size: 12px; font-weight: bold;">/sub/${escapeHtml(log.request_path || '')}</td>
+                            <td style="direction: ltr; font-size: 11px; max-width: 250px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;" title="${ua}">${ua}</td>
                             <td>${statusBadge}</td>
                         `;
                         tbody.appendChild(tr);
@@ -1634,7 +1677,13 @@ hysteria2://..." required></textarea>
         }
 
         // Copy Single Config
-        function copyConfig(text) {
+        // Reads the config from the row's data-text attribute (Jinja-escaped)
+        // instead of receiving it as an inlined JS string — avoids XSS/breakage
+        // when config text (often from untrusted auto-scan sources) contains
+        // quotes or HTML.
+        function copyConfig(btn) {
+            const row = btn.closest('tr');
+            const text = row ? (row.dataset.text || '') : '';
             navigator.clipboard.writeText(text).then(() => {
                 showAlert('کانفیگ کپی شد!', 'success');
             });
@@ -1921,7 +1970,7 @@ hysteria2://..." required></textarea>
                             if (actionDiv) {
                                 actionDiv.innerHTML = `
                                     <button class="btn btn-secondary" style="padding: 6px 10px;"
-                                        onclick="copyConfig('${row.dataset.text}')"
+                                        onclick="copyConfig(this)"
                                         title="کپی کانفیگ">📋</button>
                                     <button class="btn ${enabled ? 'btn-secondary' : 'btn-success'}" style="padding: 6px 10px;"
                                         onclick="toggleConfigEnabled(${configId}, ${enabled ? 'false' : 'true'})"
@@ -2101,9 +2150,16 @@ hysteria2://..." required></textarea>
             });
         }
         function logout() {
-            if (confirm('آیا می‌خواهید از حساب خود خارج شوید؟')) {
-                window.location.href = '/adminpanel/logout';
-            }
+            if (!confirm('آیا می‌خواهید از حساب خود خارج شوید؟')) return;
+            // POST via a form so the browser follows the redirect to the login page.
+            const f = document.createElement('form');
+            f.method = 'POST';
+            f.action = '/adminpanel/logout';
+            const t = document.createElement('input');
+            t.type = 'hidden'; t.name = 'csrf_token'; t.value = CSRF_TOKEN;
+            f.appendChild(t);
+            document.body.appendChild(f);
+            f.submit();
         }
 
         // Drag & Drop Implementation
@@ -2596,8 +2652,9 @@ hysteria2://..." required></textarea>
                     ? `<button class="btn btn-success" style="padding:5px 9px" onclick="toggleUser(${u.id},true)" title="فعال‌سازی">⚡</button>`
                     : `<button class="btn btn-secondary" style="padding:5px 9px" onclick="toggleUser(${u.id},false)" title="غیرفعال‌سازی">🔌</button>`;
                 const note = u.note ? `<div style="font-size:11px;color:var(--text-muted)">${escapeHtml(u.note)}</div>` : '';
+                const dev = deviceBadge(u);
                 return `<tr>
-                    <td>${escapeHtml(u.name)}${note}</td>
+                    <td>${escapeHtml(u.name)}${dev}${note}</td>
                     <td><span class="user-link" onclick="copyUserLink(${i})" title="برای کپی کلیک کنید">/sub/${escapeHtml(u.path)} 📋</span></td>
                     <td>${u.duration_days} روز</td>
                     <td style="font-size:12px;color:var(--text-secondary)">${escapeHtml(u.expire_at_local || '—')}</td>
@@ -2613,6 +2670,15 @@ hysteria2://..." required></textarea>
                     </div></td>
                 </tr>`;
             }).join('');
+        }
+
+        function deviceBadge(u) {
+            const max = u.max_devices || 0;
+            if (max === 0) return '';  // unlimited — no badge
+            const active = u.active_device_count || 0;
+            const full = active >= max;
+            const color = full ? 'var(--warning)' : 'var(--text-muted)';
+            return `<div style="font-size:11px;color:${color}">📱 ${active} / ${max} دستگاه</div>`;
         }
 
         function copyUserLink(i) { copyText(_usersCache[i].sub_url); }
@@ -2697,6 +2763,7 @@ hysteria2://..." required></textarea>
                 EXPIRED: ['var(--warning-soft)', 'var(--warning)', 'منقضی'],
                 USER_PAUSED: ['var(--warning-soft)', 'var(--warning)', 'متوقف'],
                 USER_DISABLED: ['rgba(107,118,144,.2)', 'var(--text-muted)', 'غیرفعال'],
+                DEVICE_LIMIT: ['var(--warning-soft)', 'var(--warning)', 'سقف دستگاه'],
                 DISABLED_PATH: ['rgba(107,118,144,.2)', 'var(--text-muted)', 'مسیر خاموش'],
                 NOT_FOUND: ['var(--danger-soft)', 'var(--danger)', 'یافت نشد'],
                 RATE_LIMIT: ['var(--danger-soft)', 'var(--danger)', 'محدودیت نرخ']
@@ -2711,13 +2778,17 @@ hysteria2://..." required></textarea>
                 <div style="font-size:13px;direction:ltr;word-break:break-all">${escapeHtml(val)}</div></div>`;
         }
 
+        let _historyUserId = null;
+
         function openUserHistory(i) {
             const u = _usersCache[i];
+            _historyUserId = u.id;
             document.getElementById('history-modal-title').textContent = 'تاریخچه‌ی ' + u.name;
             document.getElementById('history-summary').innerHTML = '<div style="color:var(--text-muted)">درحال بارگذاری...</div>';
             document.getElementById('history-uas').innerHTML = '';
             document.getElementById('history-rows').innerHTML = '';
             document.getElementById('history-modal').classList.add('show');
+            loadUserDevices();
             fetch('/adminpanel/api/users/' + u.id + '/history')
                 .then(r => r.json())
                 .then(d => {
@@ -2735,7 +2806,51 @@ hysteria2://..." required></textarea>
                 .catch(() => { document.getElementById('history-summary').innerHTML = '<div style="color:var(--danger)">خطا در بارگذاری تاریخچه</div>'; });
         }
 
-        function closeUserHistory() { document.getElementById('history-modal').classList.remove('show'); }
+        function closeUserHistory() { document.getElementById('history-modal').classList.remove('show'); _historyUserId = null; }
+
+        function loadUserDevices() {
+            const tb = document.getElementById('history-devices');
+            const cnt = document.getElementById('history-devices-count');
+            tb.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">درحال بارگذاری...</td></tr>';
+            cnt.textContent = '';
+            fetch('/adminpanel/api/users/' + _historyUserId + '/devices')
+                .then(r => r.json())
+                .then(d => {
+                    const cap = d.max_devices === 0 ? '∞' : d.max_devices;
+                    cnt.textContent = `(${d.active_device_count} فعال / ${cap})`;
+                    tb.innerHTML = (d.devices && d.devices.length)
+                        ? d.devices.map(x => {
+                            const dot = x.is_active
+                                ? '<span style="color:var(--success)">●</span>'
+                                : '<span style="color:var(--text-muted)" title="خارج از پنجره‌ی فعال">○</span>';
+                            return `<tr style="${x.is_active ? '' : 'opacity:.55'}">
+                                <td style="direction:ltr;font-size:12px">${dot} ${escapeHtml(x.network || '—')}</td>
+                                <td style="direction:ltr;font-size:12px">${escapeHtml(x.user_agent || '—')}</td>
+                                <td>${x.hits}</td>
+                                <td style="font-size:12px;white-space:nowrap">${escapeHtml(x.last_seen_local || '')}</td>
+                                <td><button class="btn btn-danger" style="padding:3px 8px;font-size:11px" onclick="kickUserDevice(${x.id})" title="اخراج دستگاه">✕</button></td>
+                            </tr>`;
+                        }).join('')
+                        : '<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">دستگاهی ثبت نشده است</td></tr>';
+                })
+                .catch(() => { tb.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--danger)">خطا در بارگذاری دستگاه‌ها</td></tr>'; });
+        }
+
+        function resetUserDevices() {
+            if (!_historyUserId) return;
+            if (!confirm('همه‌ی دستگاه‌های ثبت‌شده‌ی این کاربر پاک شوند؟ اسلات‌ها آزاد می‌شوند.')) return;
+            fetch('/adminpanel/api/users/' + _historyUserId + '/devices/reset', { method: 'POST' })
+                .then(r => r.json())
+                .then(d => { showToast(d.message, d.success ? 'success' : 'error'); if (d.success) { loadUserDevices(); loadUsers(); } });
+        }
+
+        function kickUserDevice(deviceId) {
+            if (!_historyUserId) return;
+            if (!confirm('این دستگاه اخراج شود؟')) return;
+            fetch('/adminpanel/api/users/' + _historyUserId + '/devices/' + deviceId, { method: 'DELETE' })
+                .then(r => r.json())
+                .then(d => { showToast(d.message, d.success ? 'success' : 'error'); if (d.success) { loadUserDevices(); loadUsers(); } });
+        }
 
         // ── Backup and DR Javascript logic ──────────────────────────
         function toggleTelegramFields(enabled) {

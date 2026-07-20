@@ -29,9 +29,32 @@ def create_app(testing=False):
     # (rate limiting per real IP, correct https links in the admin panel)
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
+    # CSRF protection (disabled in tests so existing tests need not fetch a token).
+    # The admin_api blueprint enforces it via a module-level before_request guard;
+    # here we just expose the per-session token to templates.
+    app.config['CSRF_ENABLED'] = not testing
+    from utils.csrf import get_csrf_token
+
+    @app.context_processor
+    def _inject_csrf_token():
+        return {'csrf_token': get_csrf_token()}
+
     # Rate limiting (disabled in tests so repeated logins don't hit the limit)
     app.config['RATELIMIT_ENABLED'] = not testing
     limiter.init_app(app)
+
+    # Warn when rate limits are enforced but stored per-worker: with >1 gunicorn
+    # worker the login brute-force cap is effectively multiplied and resets on
+    # restart. Operators should set RATELIMIT_STORAGE_URI to a shared backend.
+    if not testing:
+        from extensions import RATELIMIT_STORAGE_URI
+        if RATELIMIT_STORAGE_URI.startswith('memory://'):
+            import logging
+            logging.getLogger(__name__).warning(
+                "Rate-limit storage is in-process (memory://); login limits are "
+                "per-worker. Set RATELIMIT_STORAGE_URI to a shared backend "
+                "(e.g. redis://127.0.0.1:6379) for a global limit across workers."
+            )
     # Exempt from *default* limits only — explicit per-route limits
     # (e.g. the login route) still apply.
     limiter.exempt(admin_pages_bp)

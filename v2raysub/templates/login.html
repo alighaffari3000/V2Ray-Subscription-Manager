@@ -126,6 +126,7 @@
         {% endif %}
         
         <form method="POST" action="{{ url_for('admin_pages.login') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="form-group">
                 <label for="username">نام کاربری</label>
                 <input type="text" id="username" name="username" required autocomplete="username">
