@@ -114,7 +114,8 @@ class TestLogin(IntegrationTestBase):
 
     def test_logout(self):
         self._login()
-        resp = self.client.get('/adminpanel/logout', follow_redirects=False)
+        # Logout is POST-only (CSRF-protected); CSRF is disabled under testing.
+        resp = self.client.post('/adminpanel/logout', follow_redirects=False)
         self.assertIn(resp.status_code, (301, 302))
         # After logout, admin panel should redirect to login
         resp2 = self.client.get('/adminpanel', follow_redirects=False)
@@ -696,6 +697,146 @@ class TestUsers(IntegrationTestBase):
         self.assertGreaterEqual(len(data['user_agents']), 2)
 
 
+class TestDeviceLimit(IntegrationTestBase):
+    """Per-user device cap: fingerprint = UA + IP/24, rolling-window slots,
+    known devices never blocked, over-limit devices get the dummy config."""
+
+    def _add_user(self, name='کاربر', days=30, path=None, max_devices=1):
+        payload = {'name': name, 'duration_days': days, 'max_devices': max_devices}
+        if path is not None:
+            payload['path'] = path
+        resp = self.client.post('/adminpanel/api/users',
+                                data=json.dumps(payload),
+                                content_type='application/json')
+        return json.loads(resp.data)
+
+    def _seed_config(self):
+        self.client.post('/adminpanel/add', data={
+            'config_text': 'vmess://eyJhZGQiOiJ0ZXN0LmNvbSIsInBvcnQiOiI0NDMiLCJ2IjoiMiJ9'})
+
+    def _fetch(self, path, ip='1.1.1.1', ua='v2rayNG/1.0'):
+        return self.client.get('/sub/' + path,
+                               headers={'User-Agent': ua},
+                               environ_base={'REMOTE_ADDR': ip})
+
+    def _decode(self, resp):
+        import base64
+        return base64.b64decode(resp.data).decode('utf-8')
+
+    def _is_real(self, resp):
+        body = self._decode(resp)
+        return ('vmess://' in body) and ('expired-user' not in body)
+
+    def _is_dummy(self, resp):
+        return 'expired-user' in self._decode(resp)
+
+    def _get_user(self, user_id):
+        users = json.loads(self.client.get('/adminpanel/api/users').data)
+        return next((u for u in users if u['id'] == user_id), None)
+
+    # ── happy path ──
+    def test_under_limit_serves_real(self):
+        self._login()
+        self._seed_config()
+        self._add_user('A', 30, path='devunder0001', max_devices=2)
+        self.assertTrue(self._is_real(self._fetch('devunder0001', ip='1.1.1.1')))
+
+    def test_new_device_over_limit_blocked(self):
+        self._login()
+        self._seed_config()
+        uid = self._add_user('A', 30, path='devlimit0001', max_devices=1)['user']['id']
+        # first device (network 1.1.1.0/24) registers and is served
+        self.assertTrue(self._is_real(self._fetch('devlimit0001', ip='1.1.1.1', ua='v2rayNG/1.0')))
+        # a second, different network is over the cap -> dummy
+        r2 = self._fetch('devlimit0001', ip='9.9.9.9', ua='v2rayNG/1.0')
+        self.assertTrue(self._is_dummy(r2))
+        # and it was logged as DEVICE_LIMIT
+        hist = json.loads(self.client.get('/adminpanel/api/users/%d/history' % uid).data)
+        self.assertTrue(any(h['status'] == 'DEVICE_LIMIT' for h in hist['history']))
+
+    def test_same_network_not_double_counted(self):
+        self._login()
+        self._seed_config()
+        self._add_user('A', 30, path='devsamenet01', max_devices=1)
+        # same UA, two IPs inside the same /24 -> one device, both served real
+        self.assertTrue(self._is_real(self._fetch('devsamenet01', ip='5.5.5.5', ua='v2rayNG/1.0')))
+        self.assertTrue(self._is_real(self._fetch('devsamenet01', ip='5.5.5.200', ua='v2rayNG/1.0')))
+
+    def test_known_device_never_blocked_when_full(self):
+        self._login()
+        self._seed_config()
+        self._add_user('A', 30, path='devknown0001', max_devices=1)
+        self.assertTrue(self._is_real(self._fetch('devknown0001', ip='1.1.1.1', ua='v2rayNG/1.0')))
+        # a new device is turned away...
+        self.assertTrue(self._is_dummy(self._fetch('devknown0001', ip='9.9.9.9', ua='v2rayNG/1.0')))
+        # ...but the original device keeps getting the real list
+        self.assertTrue(self._is_real(self._fetch('devknown0001', ip='1.1.1.1', ua='v2rayNG/1.0')))
+
+    def test_rolling_window_frees_slot(self):
+        self._login()
+        self._seed_config()
+        uid = self._add_user('A', 30, path='devwindow001', max_devices=1)['user']['id']
+        self.assertTrue(self._is_real(self._fetch('devwindow001', ip='1.1.1.1', ua='v2rayNG/1.0')))
+        # age the only device well past the 7-day window
+        from database import get_db
+        db = get_db()
+        db.execute("UPDATE user_devices SET last_seen = datetime('now', '-30 day') WHERE user_id = ?", (uid,))
+        db.commit()
+        db.close()
+        # a new device now finds a free slot
+        self.assertTrue(self._is_real(self._fetch('devwindow001', ip='9.9.9.9', ua='v2rayNG/1.0')))
+
+    def test_max_devices_zero_is_unlimited(self):
+        self._login()
+        self._seed_config()
+        self._add_user('A', 30, path='devunlimit01', max_devices=0)
+        for ip in ('1.1.1.1', '2.2.2.2', '3.3.3.3', '4.4.4.4'):
+            self.assertTrue(self._is_real(self._fetch('devunlimit01', ip=ip)))
+
+    def test_active_device_count_reported(self):
+        self._login()
+        self._seed_config()
+        uid = self._add_user('A', 30, path='devcount0001', max_devices=3)['user']['id']
+        self._fetch('devcount0001', ip='1.1.1.1', ua='v2rayNG/1.0')
+        self._fetch('devcount0001', ip='2.2.2.2', ua='Hiddify/1.0')
+        self.assertEqual(self._get_user(uid)['active_device_count'], 2)
+
+    # ── management ──
+    def test_reset_devices_frees_slots(self):
+        self._login()
+        self._seed_config()
+        uid = self._add_user('A', 30, path='devreset0001', max_devices=1)['user']['id']
+        self._fetch('devreset0001', ip='1.1.1.1', ua='v2rayNG/1.0')
+        self.assertTrue(self._is_dummy(self._fetch('devreset0001', ip='9.9.9.9', ua='v2rayNG/1.0')))
+        # clearing devices frees the slot
+        self.assertTrue(json.loads(self.client.post(
+            '/adminpanel/api/users/%d/devices/reset' % uid).data)['success'])
+        self.assertTrue(self._is_real(self._fetch('devreset0001', ip='9.9.9.9', ua='v2rayNG/1.0')))
+
+    def test_list_and_kick_device(self):
+        self._login()
+        self._seed_config()
+        uid = self._add_user('A', 30, path='devkick00001', max_devices=2)['user']['id']
+        self._fetch('devkick00001', ip='1.1.1.1', ua='v2rayNG/1.0')
+        data = json.loads(self.client.get('/adminpanel/api/users/%d/devices' % uid).data)
+        self.assertEqual(len(data['devices']), 1)
+        dev_id = data['devices'][0]['id']
+        self.assertTrue(json.loads(self.client.delete(
+            '/adminpanel/api/users/%d/devices/%d' % (uid, dev_id)).data)['success'])
+        data2 = json.loads(self.client.get('/adminpanel/api/users/%d/devices' % uid).data)
+        self.assertEqual(len(data2['devices']), 0)
+
+    # ── format ──
+    def test_device_limit_dummy_respects_plain_format(self):
+        self._login()
+        self._seed_config()
+        self.client.post('/adminpanel/set_format', data={'format': 'plain'})
+        self._add_user('A', 30, path='devplain0001', max_devices=1)
+        self._fetch('devplain0001', ip='1.1.1.1', ua='v2rayNG/1.0')
+        resp = self._fetch('devplain0001', ip='9.9.9.9', ua='v2rayNG/1.0')
+        self.assertTrue(resp.data.decode('utf-8').startswith('trojan://expired-user'))
+
+
 class TestBackupRestore(IntegrationTestBase):
     """Integration tests for Backup & Disaster Recovery system."""
 
@@ -943,6 +1084,73 @@ class TestBackupRestore(IntegrationTestBase):
             self.assertTrue(url_called[0].startswith('https://tapi.bale.ai/bot123456:ABC-DEF/sendDocument'))
         finally:
             requests.post = orig_post
+
+
+class TestCSRF(IntegrationTestBase):
+    """CSRF protection on state-changing admin routes."""
+
+    def setUp(self):
+        super().setUp()
+        # Force-enable CSRF (disabled by default under testing) to exercise it.
+        self.app.config['CSRF_ENABLED'] = True
+
+    def _csrf_token(self, html):
+        import re
+        m = (re.search(r'name="csrf_token" value="([0-9a-f]+)"', html)
+             or re.search(r'name="csrf-token" content="([0-9a-f]+)"', html))
+        return m.group(1) if m else None
+
+    def _login_with_token(self):
+        html = self.client.get('/adminpanel/login').get_data(as_text=True)
+        token = self._csrf_token(html)
+        self.client.post('/adminpanel/login', data={
+            'username': _TEST_USERNAME, 'password': _TEST_PASSWORD, 'csrf_token': token,
+        })
+        return token
+
+    def test_login_requires_csrf_token(self):
+        # Without a token the login must not succeed (re-renders the form).
+        resp = self.client.post('/adminpanel/login', data={
+            'username': _TEST_USERNAME, 'password': _TEST_PASSWORD,
+        })
+        self.assertEqual(resp.status_code, 200)  # error render, not a 302 redirect
+
+    def test_api_post_rejected_without_token(self):
+        self._login_with_token()
+        resp = self.client.post('/adminpanel/renumber')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_api_post_accepted_with_token(self):
+        token = self._login_with_token()
+        resp = self.client.post('/adminpanel/renumber', headers={'X-CSRF-Token': token})
+        self.assertEqual(resp.status_code, 200)
+
+    def test_logout_is_post_only_and_csrf_protected(self):
+        token = self._login_with_token()
+        self.assertEqual(self.client.get('/adminpanel/logout').status_code, 405)
+        self.assertEqual(self.client.post('/adminpanel/logout').status_code, 403)
+        self.assertIn(self.client.post('/adminpanel/logout', data={'csrf_token': token}).status_code, (301, 302, 308))
+
+
+class TestSSRF(IntegrationTestBase):
+    """Auto-source URLs must reject internal/non-HTTP targets (SSRF guard)."""
+
+    def _add(self, url):
+        return json.loads(self.client.post('/adminpanel/auto_sources/add', data={
+            'name': 'S', 'url': url,
+        }).data)
+
+    def test_blocks_internal_and_non_http_urls(self):
+        self._login()
+        for bad in ('http://127.0.0.1/x', 'http://169.254.169.254/x',
+                    'http://10.0.0.1/x', 'http://2130706433/x',
+                    'file:///etc/passwd', 'ftp://h/x'):
+            self.assertFalse(self._add(bad)['success'], f'should block {bad}')
+
+    def test_allows_public_hostname(self):
+        self._login()
+        # DNS resolution is skipped under testing, so a public hostname is allowed.
+        self.assertTrue(self._add('https://example.com/sub')['success'])
 
 
 if __name__ == '__main__':
