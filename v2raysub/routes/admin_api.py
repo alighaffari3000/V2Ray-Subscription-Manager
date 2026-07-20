@@ -19,11 +19,20 @@ from services.user_service import (
     get_all_users, add_user, update_user, delete_user,
     pause_user, resume_user, reset_user, set_user_enabled,
     get_user_history,
+    list_user_devices, reset_user_devices, delete_user_device,
 )
 from database import get_setting, set_setting
 from utils.misc import get_base_url
+from utils.csrf import validate_csrf
 
 admin_api_bp = Blueprint('admin_api', __name__)
+
+
+@admin_api_bp.before_request
+def _csrf_protect():
+    """Reject state-changing admin API requests without a valid CSRF token.
+    Registered once at import time (the blueprint is shared across app instances)."""
+    return validate_csrf()
 
 
 def _require_login():
@@ -292,7 +301,15 @@ def add_auto_source():
         
     if not name or not url:
         return jsonify({'success': False, 'message': 'نام و آدرس منبع الزامی است'})
-        
+
+    # SSRF guard: reject non-HTTP(S) schemes and internal/private targets. The
+    # engine fetches this URL server-side. DNS resolution is skipped under testing.
+    from flask import current_app
+    from utils.net import validate_source_url
+    ok, msg = validate_source_url(url, resolve_dns=not current_app.config.get('TESTING'))
+    if not ok:
+        return jsonify({'success': False, 'message': msg})
+
     db = get_db()
     try:
         db.execute(
@@ -381,7 +398,7 @@ def save_automation_settings():
     
     db = get_db()
     try:
-        for key in ['scan_interval', 'health_check_interval', 'max_active_configs', 'max_new_configs_per_scan', 'failure_threshold', 'cleanup_policy', 'scan_timeout']:
+        for key in ['scan_interval', 'health_check_interval', 'max_active_configs', 'max_new_configs_per_scan', 'failure_threshold', 'cleanup_policy', 'scan_timeout', 'device_window_days', 'device_grace_hours']:
             if key in data:
                 val = str(data[key]).strip()
                 db.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', (key, val))
@@ -565,6 +582,36 @@ def user_history_route(user_id):
     return jsonify(data)
 
 
+@admin_api_bp.route('/adminpanel/api/users/<int:user_id>/devices', methods=['GET'])
+def user_devices_route(user_id):
+    err = _require_login()
+    if err:
+        return err
+    data = list_user_devices(user_id)
+    if data is None:
+        return jsonify({'success': False, 'message': 'کاربر پیدا نشد'}), 404
+    return jsonify(data)
+
+
+@admin_api_bp.route('/adminpanel/api/users/<int:user_id>/devices/reset', methods=['POST'])
+def reset_user_devices_route(user_id):
+    err = _require_login()
+    if err:
+        return err
+    success, message = reset_user_devices(user_id)
+    return jsonify({'success': success, 'message': message})
+
+
+@admin_api_bp.route('/adminpanel/api/users/<int:user_id>/devices/<int:device_id>', methods=['DELETE'])
+@admin_api_bp.route('/adminpanel/api/users/<int:user_id>/devices/<int:device_id>/delete', methods=['POST'])
+def delete_user_device_route(user_id, device_id):
+    err = _require_login()
+    if err:
+        return err
+    success, message = delete_user_device(user_id, device_id)
+    return jsonify({'success': success, 'message': message})
+
+
 # ─── Backup & Disaster Recovery endpoints ─────────────────────
 
 @admin_api_bp.route('/adminpanel/api/backup/create', methods=['POST'])
@@ -730,9 +777,11 @@ def send_backup_route(filename):
     err = _require_login()
     if err:
         return err
-        
+
     from services.backup_service import BackupService
+    from database import get_db
     import os
+    import requests
     backup_dir = BackupService.get_backup_dir()
     filepath = os.path.join(backup_dir, filename)
     
