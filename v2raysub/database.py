@@ -3,6 +3,7 @@
 
 import sqlite3
 import uuid
+from contextlib import contextmanager
 import utils.constants as constants
 
 
@@ -14,6 +15,21 @@ def get_db():
     conn.execute('PRAGMA journal_mode=WAL')
     conn.row_factory = sqlite3.Row
     return conn
+
+
+@contextmanager
+def db_session():
+    """Yield a DB connection and guarantee it is closed, even on exception.
+
+    Prefer this over ``get_db()`` + manual ``close()``: a raised error (e.g.
+    "database is locked") between open and close would otherwise leak the
+    connection and its WAL lock until garbage collection.
+    """
+    conn = get_db()
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def init_db():
@@ -120,6 +136,22 @@ def init_db():
     ''')
 
     db.execute('''
+        CREATE TABLE IF NOT EXISTS user_devices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            fingerprint TEXT NOT NULL,
+            first_seen TIMESTAMP NOT NULL,
+            last_seen TIMESTAMP NOT NULL,
+            network TEXT,
+            last_ip TEXT,
+            user_agent TEXT,
+            hits INTEGER DEFAULT 0,
+            UNIQUE(user_id, fingerprint)
+        )
+    ''')
+    db.execute('CREATE INDEX IF NOT EXISTS idx_user_devices_user ON user_devices(user_id, last_seen)')
+
+    db.execute('''
         CREATE TABLE IF NOT EXISTS config_health_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             config_id INTEGER,
@@ -186,6 +218,12 @@ def init_db():
     db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('probe_process_concurrency', '2')")
     db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('scan_timeout', '1200')")
 
+    # Device-limit knobs: how long a device slot stays "active" (rolling window),
+    # and an optional grace window after activation during which the cap is not
+    # enforced. See DEVICE_LIMIT_ROADMAP.md and services/user_service.py.
+    db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('device_window_days', '7')")
+    db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('device_grace_hours', '0')")
+
     # Seed backup configurations
     db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('backup_scheduled_enabled', '0')")
     db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('backup_interval', 'daily')")
@@ -194,6 +232,19 @@ def init_db():
     db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('backup_telegram_bot_token', '')")
     db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('backup_telegram_chat_id', '')")
     db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('backup_telegram_api_server', 'https://api.telegram.org')")
+
+    # Retention: drop subscription access logs older than this many days (0 = keep
+    # forever). subscription_logs grows one row per hit and was unbounded before.
+    db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('logs_retention_days', '90')")
+
+    # Indexes for the hot query paths. subscription_logs is scanned by
+    # request_path (per-user history) and by accessed_at (dashboard "today"
+    # counters and retention pruning); configs is filtered by status/enabled.
+    db.execute("CREATE INDEX IF NOT EXISTS idx_sublogs_request_path ON subscription_logs(request_path)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_sublogs_accessed_at ON subscription_logs(accessed_at)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_sublogs_status ON subscription_logs(status)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_configs_status_enabled ON configs(status, is_enabled)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_users_path ON users(path)")
 
     db.commit()
     db.close()
@@ -209,15 +260,13 @@ def _add_column_if_missing(db, table, column, col_type):
 
 def get_setting(key, default=''):
     """Retrieve a setting value by key."""
-    db = get_db()
-    result = db.execute('SELECT value FROM settings WHERE key = ?', (key,)).fetchone()
-    db.close()
+    with db_session() as db:
+        result = db.execute('SELECT value FROM settings WHERE key = ?', (key,)).fetchone()
     return result['value'] if result else default
 
 
 def set_setting(key, value):
     """Store a setting value."""
-    db = get_db()
-    db.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', (key, value))
-    db.commit()
-    db.close()
+    with db_session() as db:
+        db.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', (key, value))
+        db.commit()

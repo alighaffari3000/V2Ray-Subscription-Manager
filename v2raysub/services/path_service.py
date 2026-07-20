@@ -5,52 +5,47 @@ import re
 import string
 import secrets
 
-from database import get_db
+from database import get_db, db_session
 from utils.constants import PATH_REGEX, RANDOM_PATH_LENGTH
 
 
 def get_all_paths():
     """Get all subscription paths ordered by primary first."""
-    db = get_db()
-    paths = db.execute('SELECT * FROM subscription_paths ORDER BY is_primary DESC, created_at DESC').fetchall()
-    db.close()
+    with db_session() as db:
+        paths = db.execute('SELECT * FROM subscription_paths ORDER BY is_primary DESC, created_at DESC').fetchall()
     return [dict(p) for p in paths]
 
 
 def get_primary_path():
     """Get the primary subscription path string."""
-    db = get_db()
-    row = db.execute('SELECT path FROM subscription_paths WHERE is_primary = 1').fetchone()
-    db.close()
+    with db_session() as db:
+        row = db.execute('SELECT path FROM subscription_paths WHERE is_primary = 1').fetchone()
     return row['path'] if row else 'freeconfigs'
 
 
 def get_other_paths():
     """Get all non-primary paths."""
-    db = get_db()
-    rows = db.execute('SELECT * FROM subscription_paths WHERE is_primary = 0 ORDER BY created_at DESC').fetchall()
-    db.close()
+    with db_session() as db:
+        rows = db.execute('SELECT * FROM subscription_paths WHERE is_primary = 0 ORDER BY created_at DESC').fetchall()
     return [dict(r) for r in rows]
 
 
 def find_path_by_value(path_value):
     """Look up a subscription_paths row by path string. Returns dict or None."""
-    db = get_db()
-    row = db.execute('SELECT * FROM subscription_paths WHERE path = ?', (path_value,)).fetchone()
-    db.close()
+    with db_session() as db:
+        row = db.execute('SELECT * FROM subscription_paths WHERE path = ?', (path_value,)).fetchone()
     return dict(row) if row else None
 
 
 def generate_random_path():
     """Generate a unique random alphanumeric path."""
-    db = get_db()
-    while True:
-        chars = string.ascii_letters + string.digits
-        random_path = ''.join(secrets.choice(chars) for _ in range(RANDOM_PATH_LENGTH))
-        existing = db.execute('SELECT 1 FROM subscription_paths WHERE path = ?', (random_path,)).fetchone()
-        if not existing:
-            break
-    db.close()
+    with db_session() as db:
+        while True:
+            chars = string.ascii_letters + string.digits
+            random_path = ''.join(secrets.choice(chars) for _ in range(RANDOM_PATH_LENGTH))
+            existing = db.execute('SELECT 1 FROM subscription_paths WHERE path = ?', (random_path,)).fetchone()
+            if not existing:
+                break
     return random_path
 
 

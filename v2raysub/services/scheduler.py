@@ -61,6 +61,21 @@ def scheduler_worker(app):
                         args=('health_check',),
                         daemon=True
                     ).start()
+                    # Piggyback device-slot retention on the health tick.
+                    try:
+                        from services.user_service import cleanup_stale_devices
+                        cleanup_stale_devices()
+                    except Exception as e_dev:
+                        print(f"Error cleaning up stale devices: {e_dev}")
+
+                    # Piggyback subscription-log retention on the health tick too.
+                    try:
+                        from services.statistics_service import prune_old_subscription_logs
+                        deleted = prune_old_subscription_logs()
+                        if deleted:
+                            print(f"Pruned {deleted} old subscription log rows.")
+                    except Exception as e_log:
+                        print(f"Error pruning old subscription logs: {e_log}")
 
                 # Check if it's time for Scheduled Backup
                 try:

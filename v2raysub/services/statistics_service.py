@@ -4,7 +4,7 @@
 import os
 from datetime import datetime, timedelta
 
-from database import get_db
+from database import get_db, get_setting, db_session
 from utils.user_agent import parse_user_agent
 from utils.constants import DAYS_MAP, CLIENTS
 import utils.constants as constants
@@ -24,6 +24,28 @@ def log_subscription_access(ip, ua, status, request_path=''):
         print(f"Error logging subscription access: {e}")
     finally:
         db.close()
+
+
+def prune_old_subscription_logs():
+    """Delete access-log rows older than the retention window.
+
+    Controlled by the ``logs_retention_days`` setting (0 = keep forever). Called
+    periodically by the scheduler so subscription_logs can't grow unbounded.
+    Returns the number of rows deleted.
+    """
+    try:
+        days = int(get_setting('logs_retention_days', '90'))
+    except (ValueError, TypeError):
+        days = 90
+    if days <= 0:
+        return 0
+    with db_session() as db:
+        cur = db.execute(
+            "DELETE FROM subscription_logs WHERE accessed_at < datetime('now', ?)",
+            (f'-{days} days',),
+        )
+        db.commit()
+        return cur.rowcount
 
 
 def get_stats():

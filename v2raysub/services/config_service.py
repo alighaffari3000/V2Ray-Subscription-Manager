@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Config CRUD, toggles, duplicate check, renumbering."""
 
-from database import get_db, get_setting
+from database import get_db, get_setting, db_session
 from utils.config_parser import (
     detect_config_type,
     clean_remark,
@@ -41,35 +41,33 @@ def renumber_configs():
 
 def get_all_configs():
     """Get all active and enabled configs for the subscription output."""
-    db = get_db()
     sort_dir = get_setting('config_sort_order', 'asc').lower()
     order_sql = 'DESC' if sort_dir == 'desc' else 'ASC'
-    try:
-        configs = db.execute(
-            f'SELECT * FROM configs WHERE status = "active" AND is_enabled = 1 '
-            f'ORDER BY sort_order {order_sql}, created_at {order_sql}'
-        ).fetchall()
-    except Exception as e:
-        print(f"Error in get_all_configs: {e}")
+    with db_session() as db:
         try:
             configs = db.execute(
-                f'SELECT * FROM configs WHERE status = "active" ORDER BY created_at {order_sql}'
+                f'SELECT * FROM configs WHERE status = "active" AND is_enabled = 1 '
+                f'ORDER BY sort_order {order_sql}, created_at {order_sql}'
             ).fetchall()
-        except Exception:
-            configs = []
-    db.close()
+        except Exception as e:
+            print(f"Error in get_all_configs: {e}")
+            try:
+                configs = db.execute(
+                    f'SELECT * FROM configs WHERE status = "active" ORDER BY created_at {order_sql}'
+                ).fetchall()
+            except Exception:
+                configs = []
     return configs
 
 def get_all_configs_for_admin():
     """Get all active configs (including disabled) for admin panel display."""
-    db = get_db()
     sort_dir = get_setting('config_sort_order', 'asc').lower()
     order_sql = 'DESC' if sort_dir == 'desc' else 'ASC'
-    configs_rows = db.execute(
-        f'SELECT * FROM configs WHERE status = "active" '
-        f'ORDER BY sort_order {order_sql}, created_at {order_sql}'
-    ).fetchall()
-    db.close()
+    with db_session() as db:
+        configs_rows = db.execute(
+            f'SELECT * FROM configs WHERE status = "active" '
+            f'ORDER BY sort_order {order_sql}, created_at {order_sql}'
+        ).fetchall()
 
     configs = []
     for row in configs_rows:
@@ -84,37 +82,35 @@ def add_configs(config_text):
     if not parsed:
         return 0, 0, 'هیچ کانفیگ معتبری پیدا نشد'
 
-    db = get_db()
-
-    # Build set of existing identities
-    existing_rows = db.execute('SELECT config_text, config_type FROM configs WHERE status="active"').fetchall()
-    existing_identities = set()
-    for row in existing_rows:
-        identity = get_config_identity(row['config_text'], row['config_type'])
-        existing_identities.add(identity)
-
-    max_sort_row = db.execute('SELECT MAX(sort_order) as max_val FROM configs WHERE status="active"').fetchone()
-    max_sort = max_sort_row['max_val'] if max_sort_row else 0
-    start_order = (max_sort if max_sort is not None else 0) + 1
-
     added_count = 0
     duplicates_count = 0
 
-    for cfg in parsed:
-        identity = get_config_identity(cfg['text'], cfg['type'])
-        if identity in existing_identities:
-            duplicates_count += 1
-            continue
-        current_order = start_order + added_count
-        db.execute(
-            'INSERT INTO configs (config_text, config_type, sort_order, is_enabled) VALUES (?, ?, ?, 1)',
-            (cfg['text'], cfg['type'], current_order)
-        )
-        existing_identities.add(identity)
-        added_count += 1
+    with db_session() as db:
+        # Build set of existing identities
+        existing_rows = db.execute('SELECT config_text, config_type FROM configs WHERE status="active"').fetchall()
+        existing_identities = set()
+        for row in existing_rows:
+            identity = get_config_identity(row['config_text'], row['config_type'])
+            existing_identities.add(identity)
 
-    db.commit()
-    db.close()
+        max_sort_row = db.execute('SELECT MAX(sort_order) as max_val FROM configs WHERE status="active"').fetchone()
+        max_sort = max_sort_row['max_val'] if max_sort_row else 0
+        start_order = (max_sort if max_sort is not None else 0) + 1
+
+        for cfg in parsed:
+            identity = get_config_identity(cfg['text'], cfg['type'])
+            if identity in existing_identities:
+                duplicates_count += 1
+                continue
+            current_order = start_order + added_count
+            db.execute(
+                'INSERT INTO configs (config_text, config_type, sort_order, is_enabled) VALUES (?, ?, ?, 1)',
+                (cfg['text'], cfg['type'], current_order)
+            )
+            existing_identities.add(identity)
+            added_count += 1
+
+        db.commit()
 
     if added_count > 0:
         renumber_configs()
@@ -155,10 +151,9 @@ def set_config_enabled_status(config_id, enabled):
 
 def delete_config(config_id):
     """Soft-delete a config. Returns (success, message)."""
-    db = get_db()
-    db.execute('UPDATE configs SET status = "deleted" WHERE id = ?', (config_id,))
-    db.commit()
-    db.close()
+    with db_session() as db:
+        db.execute('UPDATE configs SET status = "deleted" WHERE id = ?', (config_id,))
+        db.commit()
     renumber_configs()
     return True, 'کانفیگ با موفقیت حذف شد'
 
