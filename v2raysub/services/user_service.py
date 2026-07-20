@@ -455,6 +455,24 @@ def set_user_enabled(user_id, enabled):
 # ---------------------------------------------------------------------------
 # subscription request resolution (used by routes/client.py)
 # ---------------------------------------------------------------------------
+# User-Agent substrings identifying link-preview crawlers / bots (Telegram,
+# Twitter/X, Discord, Slack, Facebook, WhatsApp, search engines, ...). These
+# fetch the subscription link to build a preview and are not real client
+# devices, so they must not consume a per-user device slot. No real VPN client
+# UA (v2rayNG, Nekobox, Clash, Streisand, sing-box, Hiddify, ...) contains these.
+_BOT_UA_MARKERS = (
+    'bot', 'crawler', 'spider', 'preview', 'facebookexternalhit', 'whatsapp',
+)
+
+
+def is_bot_user_agent(user_agent):
+    """True if the User-Agent looks like a link-preview crawler / bot."""
+    if not user_agent:
+        return False
+    ua = user_agent.lower()
+    return any(marker in ua for marker in _BOT_UA_MARKERS)
+
+
 def _allow_device(db, user, ip, user_agent):
     """Enforce the per-user device cap using a rolling-window of fingerprints.
 
@@ -463,9 +481,16 @@ def _allow_device(db, user, ip, user_agent):
     device is always refreshed and allowed; a brand-new device is allowed only
     while free slots remain, otherwise rejected (caller serves the dummy config).
 
+    Link-preview crawlers/bots are served but never counted as a device.
+
     Returns True to serve the real list, False to serve the device-limit dummy.
     Fails open (True) on unlimited caps, missing IPs, or any unexpected error.
     """
+    # Preview crawlers (e.g. Telegram fetching the link when it's shared) are not
+    # real devices — serve them without registering or consuming a device slot.
+    if is_bot_user_agent(user_agent):
+        return True
+
     max_dev = int(user['max_devices'] or 0)
     if max_dev <= 0:
         return True  # 0 = unlimited

@@ -772,6 +772,20 @@ class TestDeviceLimit(IntegrationTestBase):
         # ...but the original device keeps getting the real list
         self.assertTrue(self._is_real(self._fetch('devknown0001', ip='1.1.1.1', ua='v2rayNG/1.0')))
 
+    def test_preview_bot_does_not_consume_a_device_slot(self):
+        self._login()
+        self._seed_config()
+        uid = self._add_user('A', 30, path='devbot000001', max_devices=1)['user']['id']
+        # Telegram's link-preview bot fetches first — served, but must NOT take
+        # the single device slot (mirrors sharing the link in a Telegram chat).
+        self.assertTrue(self._is_real(self._fetch(
+            'devbot000001', ip='149.154.161.251', ua='TelegramBot (like TwitterBot)')))
+        # The user's real client on a different network still gets the real list.
+        self.assertTrue(self._is_real(self._fetch(
+            'devbot000001', ip='65.108.154.95', ua='v2rayNG/2.2.5')))
+        # Exactly one device (the real client) is registered.
+        self.assertEqual(self._get_user(uid)['active_device_count'], 1)
+
     def test_rolling_window_frees_slot(self):
         self._login()
         self._seed_config()
