@@ -12,10 +12,17 @@
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-21
+
 ### Added
 - نصب و راه‌اندازی خودکار Redis در `install.sh` برای اشتراک‌گذاری شمارنده‌ی محدودیت نرخ
   ورود بین workerهای gunicorn (`RATELIMIT_STORAGE_URI`). اگر Redis در دسترس نباشد، بدون
   متوقف‌کردن نصب، به حالت قبلی (شمارش جداگانه در هر worker) برمی‌گردد.
+
+### Fixed
+- شناسایی دستگاه در محدودیت تعداد دستگاه (`max_devices`) اکنون فقط بر اساس شبکه‌ی IP
+  (پیشوند /24) است، نه ترکیب آن با User-Agent. قبلاً کاربری که با یک گوشی/یک اینترنت چند
+  کلاینت مختلف (مثلاً v2rayNG و Hiddify) را امتحان می‌کرد به‌اشتباه چند دستگاه شمرده می‌شد.
 
 ## [1.0.0] - 2026-07-21
 
@@ -26,5 +33,6 @@
 - نمایش نسخه در پایان نصب/آپدیت: «Version X.Y.Z installed/updated successfully».
 - مدیریت کاربران (user-management) و محدودیت تعداد دستگاه (device-limit).
 
-[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/releases/tag/v1.0.0
