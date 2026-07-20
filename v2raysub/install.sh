@@ -208,9 +208,27 @@ fi
 
 echo -e "\n${GREEN}[1/8] Installing system packages...${NC}"
 # build-essential/cmake/pkg-config are only needed if we have to compile
-# V2RayDAR from source (rusqlite bundled + aws-lc-rs).
+# V2RayDAR from source (rusqlite bundled + aws-lc-rs). redis-server backs a
+# shared login rate-limit counter across gunicorn workers (see below).
 apt update && apt install -y python3 python3-pip python3-venv nginx certbot python3-certbot-nginx \
-    build-essential cmake pkg-config curl
+    build-essential cmake pkg-config curl redis-server
+
+# Without Redis, flask-limiter counts logins in-process: each gunicorn worker
+# keeps its own counter, so the real login cap becomes (limit × workers) and
+# resets on every restart (see extensions.py). The distro package already
+# binds to 127.0.0.1 only, so no further hardening is needed here. This must
+# never abort the install — the app still runs fine on the weaker per-worker
+# limit if Redis can't be reached, same fallback pattern as Sing-box below.
+echo -e "${GREEN}[*] Starting Redis (shared login rate-limit storage)...${NC}"
+systemctl enable redis-server >/dev/null 2>&1 || true
+systemctl start redis-server || true
+REDIS_READY=0
+if command -v redis-cli &>/dev/null && [ "$(redis-cli -h 127.0.0.1 -p 6379 ping 2>/dev/null)" = "PONG" ]; then
+    REDIS_READY=1
+    echo -e "${GREEN}[OK] Redis is running on 127.0.0.1:6379.${NC}"
+else
+    echo -e "${YELLOW}[!] Redis did not respond to a ping. Login rate-limiting will stay per-worker (memory://).${NC}"
+fi
 
 echo -e "${GREEN}[2/8] Creating project directory...${NC}"
 mkdir -p $PROJECT_DIR
@@ -358,15 +376,28 @@ if [ "$EXISTING_INSTALL" = "0" ]; then
     # like ' or $ cannot break the command or inject code.
     HASHED_PASSWORD=$(ADMIN_PW="$admin_password" python3 -c "import os; from werkzeug.security import generate_password_hash; print(generate_password_hash(os.environ['ADMIN_PW']))")
 
+    if [ "$REDIS_READY" = "1" ]; then
+        RATELIMIT_LINE="RATELIMIT_STORAGE_URI=redis://127.0.0.1:6379"
+    else
+        RATELIMIT_LINE="# Redis wasn't reachable during install; install/start it, then uncomment:
+# RATELIMIT_STORAGE_URI=redis://127.0.0.1:6379"
+    fi
+
     write_file .env \
         "ADMIN_USERNAME=$admin_username" \
         "ADMIN_PASSWORD=$HASHED_PASSWORD" \
         "SECRET_KEY=$SECRET_KEY" \
-        "# For a global login rate-limit across gunicorn workers, run Redis and set:" \
-        "# RATELIMIT_STORAGE_URI=redis://127.0.0.1:6379"
+        "$RATELIMIT_LINE"
     chmod 600 .env
 else
     echo -e "${GREEN}[5/8] Keeping existing .env (admin login and secret key unchanged).${NC}"
+    # An existing install predating this feature (or one where Redis wasn't
+    # reachable on a prior run) won't have this key yet — add it now that
+    # Redis is confirmed up, without touching anything else in .env.
+    if [ "$REDIS_READY" = "1" ] && ! grep -q '^RATELIMIT_STORAGE_URI=' "$PROJECT_DIR/.env" 2>/dev/null; then
+        echo "RATELIMIT_STORAGE_URI=redis://127.0.0.1:6379" >> "$PROJECT_DIR/.env"
+        echo -e "${GREEN}    Added RATELIMIT_STORAGE_URI to .env — login rate-limiting now shared across workers via Redis.${NC}"
+    fi
 fi
 
 echo -e "${GREEN}[6/8] Initializing the database...${NC}"
@@ -524,7 +555,10 @@ echo -e "${GREEN}  -> write systemd unit${NC}"
 write_file /etc/systemd/system/v2ray-sub.service \
     "[Unit]" \
     "Description=V2Ray Subscription Manager" \
-    "After=network.target" \
+    "# Wants (not Requires): Redis backs the shared rate limiter but its absence" \
+    "# must not block the panel from starting (see the memory:// fallback above)." \
+    "After=network.target redis-server.service" \
+    "Wants=redis-server.service" \
     "" \
     "[Service]" \
     "User=www-data" \

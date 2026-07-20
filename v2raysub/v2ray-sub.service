@@ -3,7 +3,10 @@
 
 [Unit]
 Description=V2Ray Subscription Management System
-After=network.target
+# Wants (not Requires): Redis backs the shared rate limiter but its absence
+# must not block the panel from starting (falls back to per-worker memory://).
+After=network.target redis-server.service
+Wants=redis-server.service
 
 [Service]
 Type=simple
