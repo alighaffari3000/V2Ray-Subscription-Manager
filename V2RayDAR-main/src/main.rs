@@ -171,7 +171,12 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     let is_worker = matches!(&cli.command, Some(Commands::Worker(_)));
     if is_worker {
-        let filter = tracing_subscriber::EnvFilter::new("warn");
+        // Base level stays `warn` to avoid flooding stderr, but the probe
+        // module's scan-shape spans (batch sizing, TCP pre-filter counts) are
+        // surfaced at `info` since they're the only visibility an operator has
+        // into worker-mode scans. RUST_LOG still overrides this when set.
+        let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn,v2raydar::probe=info"));
         tracing_subscriber::fmt()
             .with_env_filter(filter)
             .with_writer(io::stderr)

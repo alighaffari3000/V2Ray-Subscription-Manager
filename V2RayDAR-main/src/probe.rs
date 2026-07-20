@@ -501,9 +501,16 @@ async fn probe_active_with_tcp_prefilter(
 
     // Nothing to screen (e.g. an all-UDP queue): fall straight through.
     if tcp_testable.is_empty() {
+        info!(udp_count, "TCP pre-filter skipped: no TCP-testable candidates");
         return probe_active_batched(udp_bypass, config, progress, stop_policy).await;
     }
 
+    info!(
+        screening = tcp_testable.len(),
+        udp_bypass = udp_count,
+        concurrency = tcp_prefilter_concurrency(config),
+        "TCP pre-filter starting"
+    );
     send_progress(
         progress.as_ref(),
         format!(
@@ -547,6 +554,13 @@ async fn probe_active_with_tcp_prefilter(
     if !dead.is_empty() {
         send_probe_delta(progress.as_ref(), dead.len(), 0);
     }
+    info!(
+        reachable = reachable.len(),
+        dead = dead.len(),
+        udp_bypass = udp_count,
+        advancing_to_active = reachable.len() + udp_count,
+        "TCP pre-filter finished"
+    );
     send_progress(
         progress.as_ref(),
         format!(

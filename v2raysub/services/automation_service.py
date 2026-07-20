@@ -26,6 +26,21 @@ def is_scan_active():
     """True if a scan is running in this or any other worker process."""
     return SCAN_LOCK.locked() or SCAN_FILE_LOCK.is_locked_elsewhere()
 
+def log_worker_stderr(job_id, stderr):
+    """Surface the Rust worker's tracing output (stderr) into our own logs.
+
+    On success `Runner.run_subprocess` returns stderr but nothing prints it,
+    so operators had no visibility into worker-mode scan internals (batch
+    sizing, TCP pre-filter counts, etc). Failure paths already include stderr
+    in their own error message, so only call this for successful runs.
+    """
+    if not stderr:
+        return
+    for line in stderr.splitlines():
+        line = line.strip()
+        if line:
+            print(f"[{job_id}] [v2raydar] {line}")
+
 def get_validated_concurrency(key, default):
     """Retrieve and validate concurrency config parameter from settings.
     
@@ -662,7 +677,9 @@ class AutomationService:
                     for s in sources_list:
                         MetricsRecorder.update_source_metadata(s['name'], started_at_str, False, stderr)
                     return False, f"Worker process failed: {stderr}"
-                
+
+                log_worker_stderr(job_id, stderr)
+
                 try:
                     parsed_output = ResultParser.parse(stdout)
                 except Exception as e:
@@ -790,7 +807,9 @@ class AutomationService:
                         error_msg=err_desc
                     )
                     return False, f"Worker process failed: {stderr}"
-                
+
+                log_worker_stderr(job_id, stderr)
+
                 try:
                     parsed_output = ResultParser.parse(stdout)
                 except Exception as e:

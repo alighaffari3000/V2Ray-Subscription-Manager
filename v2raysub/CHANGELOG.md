@@ -12,6 +12,15 @@
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-07-21
+
+### Fixed
+- تشخیص‌پذیری اسکن worker: پیش از این، اسکن‌های `worker discovery`/`worker health` هیچ لاگ
+  داخلی (اندازه‌ی batch، نتیجه‌ی TCP pre-filter و...) را جایی نشان نمی‌دادند؛ کانال progress
+  به `None` ست شده بود و سطح لاگ روی `warn` قفل بود. اکنون اسپن‌های `info` ماژول probe در
+  worker mode فعال‌اند و سرویس پایتون stderr موفق ورکر را هم در لاگ‌های خودش (و در نتیجه در
+  journalctl) چاپ می‌کند.
+
 ## [1.1.0] - 2026-07-21
 
 ### Added
@@ -33,6 +42,7 @@
 - نمایش نسخه در پایان نصب/آپدیت: «Version X.Y.Z installed/updated successfully».
 - مدیریت کاربران (user-management) و محدودیت تعداد دستگاه (device-limit).
 
-[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/releases/tag/v1.0.0
