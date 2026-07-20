@@ -7,6 +7,7 @@ import zipfile
 import json
 import time
 import hashlib
+import hmac
 import uuid
 import platform
 import socket
@@ -17,6 +18,38 @@ import requests
 
 from database import get_db, get_setting, set_setting
 import utils.constants as constants
+
+# Settings keys holding secrets. These are redacted (blanked) from the DB export
+# of non-full_dr backups so credentials never sit in cleartext inside a standard
+# (unencrypted) backup ZIP. On restore, a blank redacted value is not allowed to
+# overwrite a locally-configured secret (see restore_backup).
+SENSITIVE_SETTING_KEYS = {
+    'backup_telegram_bot_token',
+}
+
+# Top-level paths permitted to be written back to disk during restore, derived
+# from RUNTIME_DATA_MANIFEST. A restored file whose target is outside these is
+# refused, so a malicious archive cannot overwrite application code (app.py,
+# services/*.py, ...) or plant files elsewhere.
+RESTORE_ALLOWED_EXACT = {'database.db', '.env'}
+RESTORE_ALLOWED_PREFIXES = ('templates/', 'static/', 'storage/')
+
+# Files that can influence rendering or execution (Jinja templates, static
+# assets, environment). These are restored ONLY from an authentic backup — one
+# whose manifest signature verifies, or an encrypted backup that decrypted with
+# the supplied password — never from an untrusted/unsigned archive. This closes
+# the "plant an SSTI template via a tampered backup → RCE" vector.
+RESTORE_CODE_PREFIXES = ('templates/', 'static/')
+
+
+def _manifest_signature(manifest: dict) -> str:
+    """HMAC-SHA256 of the manifest (excluding its own 'signature' field), keyed by
+    the app SECRET_KEY. The manifest embeds every file's checksum, so signing it
+    authenticates the entire archive and detects tampering."""
+    from config import Config
+    payload = {k: v for k, v in manifest.items() if k != 'signature'}
+    canonical = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode('utf-8')
+    return hmac.new(Config.SECRET_KEY.encode('utf-8'), canonical, hashlib.sha256).hexdigest()
 
 # Safe import of cryptography for AES-256-GCM encryption
 try:
@@ -246,6 +279,12 @@ class BackupService:
                     continue
                 rows = db_conn.execute(f"SELECT * FROM {t}").fetchall()
                 dict_rows = [dict(r) for r in rows]
+                # Redact secrets from unencrypted standard backups; full_dr backups
+                # are AES-encrypted, so they keep the real values for true recovery.
+                if t == 'settings' and backup_type != 'full_dr':
+                    for row in dict_rows:
+                        if row.get('key') in SENSITIVE_SETTING_KEYS:
+                            row['value'] = ''
                 db_data[t] = dict_rows
                 record_counts[t] = len(dict_rows)
 
@@ -337,6 +376,10 @@ class BackupService:
                 "file_count": file_count,
                 "database_record_counts": record_counts
             }
+
+            # Sign the manifest last, so the signature covers all checksums and
+            # metadata above. This authenticates the archive on restore.
+            manifest["signature"] = _manifest_signature(manifest)
 
             manifest_path = os.path.join(temp_dir, 'manifest.json')
             with open(manifest_path, 'w', encoding='utf-8') as f:
@@ -627,7 +670,11 @@ class BackupService:
     def verify_backup(zip_filepath, password=None) -> dict:
         """Non-destructively verify ZIP integrity, manifest, and checksums."""
         temp_extract = os.path.join(BackupService.get_backup_dir(), f"verify_{uuid.uuid4().hex}")
-        
+        # Initialised before the try so the finally can reference it even when an
+        # early return (non-ZIP / encrypted-without-password) exits before the
+        # decryption block below would have assigned it.
+        temp_dec_zip = None
+
         try:
             # 1. Archive check
             if not zipfile.is_zipfile(zip_filepath):
@@ -660,8 +707,7 @@ class BackupService:
             # Extract ZIP contents to verify
             # Perform decryption if needed
             dec_zip_path = zip_filepath
-            temp_dec_zip = None
-            
+
             with open(zip_filepath, 'rb') as f:
                 header = f.read(4)
             if header == b'ENC\x00':
@@ -703,7 +749,22 @@ class BackupService:
                 if not os.path.exists(full_path):
                     return {"success": False, "status": "Incompatible", "message": f"فایل {rel_path} ذکر شده در مانیفست در آرشیو یافت نشد"}
                 if _sha256_checksum(full_path) != expected_hash:
-                    return {"success": False, "status": "Incompatible", "message": f"عدم مطابقت امضای دیجیتال (Checksum) برای فایل: {rel_path}"}
+                    return {"success": False, "status": "Incompatible", "message": f"عدم مطابقت جمع کنترلی (Checksum) برای فایل: {rel_path}"}
+
+            # 3b. Authenticity: verify the manifest HMAC signature. A backup is
+            # trusted if its signature matches this server's key, or if it was an
+            # encrypted archive that decrypted successfully (possessing the
+            # password proves authenticity). Untrusted archives still verify
+            # structurally, but restore will refuse their code/template files.
+            was_encrypted = header == b'ENC\x00'
+            authentic_sig = False
+            try:
+                sig = manifest.get('signature')
+                if sig:
+                    authentic_sig = hmac.compare_digest(str(sig), _manifest_signature(manifest))
+            except Exception:
+                authentic_sig = False
+            authentic = bool(authentic_sig or was_encrypted)
 
             # 4. Schema verification
             db_json_path = os.path.join(temp_extract, 'database.json')
@@ -751,7 +812,8 @@ class BackupService:
                 "status": status,
                 "message": message,
                 "stats": stats,
-                "encrypted": header == b'ENC\x00'
+                "encrypted": was_encrypted,
+                "authentic": authentic
             }
 
         except Exception as e:
@@ -838,6 +900,17 @@ class BackupService:
             with open(os.path.join(temp_extract, 'database.json'), 'r', encoding='utf-8') as f:
                 db_data = json.load(f)
 
+            # Capture locally-configured secrets before the settings table is
+            # truncated, so a standard backup (which redacts them to '') can't wipe
+            # them out on restore. Full_dr backups carry the real value and override.
+            preserved_secrets = {}
+            try:
+                for r in db_conn.execute("SELECT key, value FROM settings").fetchall():
+                    if r['key'] in SENSITIVE_SETTING_KEYS and r['value']:
+                        preserved_secrets[r['key']] = r['value']
+            except Exception:
+                pass
+
             db_tables = provider.get_tables(db_conn)
             for table, rows in db_data.items():
                 if table not in db_tables:
@@ -851,27 +924,69 @@ class BackupService:
                 db_cols = provider.get_columns(db_conn, table)
                 row_cols = list(rows[0].keys())
                 aligned_cols = [c for c in row_cols if c in db_cols]
-                
+
                 # Extract and write aligned columns only
                 provider.insert_rows(db_conn, table, aligned_cols, rows)
 
-            # File Restore
+            # Restore preserved secrets only where the incoming value is blank
+            # (i.e. it was redacted out of a standard backup).
+            for k, v in preserved_secrets.items():
+                cur = db_conn.execute("SELECT value FROM settings WHERE key = ?", (k,)).fetchone()
+                if cur is None or not cur['value']:
+                    db_conn.execute(
+                        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (k, v)
+                    )
+
+            # File Restore — treat the archive's files as untrusted input.
             files_dir = os.path.join(temp_extract, 'files')
+            authentic = bool(ver.get('authentic', False))
+            base_abs = os.path.abspath(constants.BASE_DIR)
+            skipped_untrusted = 0
+            skipped_outside = 0
             if os.path.exists(files_dir):
-                # Copy templates and static files back to application BASE_DIR
                 for root, _, files in os.walk(files_dir):
                     for file in files:
                         src_file = os.path.join(root, file)
                         rel_file = os.path.relpath(src_file, files_dir)
-                        
-                        # SAFE HANDLING OF .env
-                        if rel_file == ".env" and not restore_env:
-                            # Skip env copy
+                        rel_norm = rel_file.replace('\\', '/')
+
+                        # SAFE HANDLING OF .env — respects the explicit toggle
+                        if rel_norm == ".env" and not restore_env:
                             continue
-                            
+
+                        # Allowlist: only known data locations may be written back,
+                        # so a malicious archive can't overwrite application code.
+                        allowed = (
+                            rel_norm in RESTORE_ALLOWED_EXACT
+                            or rel_norm.startswith(RESTORE_ALLOWED_PREFIXES)
+                        )
+                        if not allowed:
+                            skipped_outside += 1
+                            continue
+
+                        # Code/render-affecting files (templates, static, .env)
+                        # are restored only from an authentic backup — blocks the
+                        # "plant an SSTI template via a tampered backup" RCE vector.
+                        if (rel_norm.startswith(RESTORE_CODE_PREFIXES) or rel_norm == ".env") and not authentic:
+                            skipped_untrusted += 1
+                            continue
+
                         dest_file = os.path.join(constants.BASE_DIR, rel_file)
+                        dest_abs = os.path.abspath(dest_file)
+                        # Path-traversal containment: never write outside BASE_DIR.
+                        if dest_abs != base_abs and not dest_abs.startswith(base_abs + os.sep):
+                            skipped_outside += 1
+                            continue
+
                         os.makedirs(os.path.dirname(dest_file), exist_ok=True)
                         shutil.copy2(src_file, dest_file)
+
+            if skipped_untrusted or skipped_outside:
+                print(
+                    f"[restore {session_id}] Skipped files — "
+                    f"{skipped_untrusted} untrusted (unsigned code/template/.env), "
+                    f"{skipped_outside} outside allowed data locations."
+                )
 
             # Commit Transaction
             db_conn.commit()
