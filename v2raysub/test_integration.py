@@ -762,6 +762,20 @@ class TestDeviceLimit(IntegrationTestBase):
         self.assertTrue(self._is_real(self._fetch('devsamenet01', ip='5.5.5.5', ua='v2rayNG/1.0')))
         self.assertTrue(self._is_real(self._fetch('devsamenet01', ip='5.5.5.200', ua='v2rayNG/1.0')))
 
+    def test_same_ip_different_clients_is_one_device(self):
+        # One person, one connection, several client apps (different UAs) must
+        # count as a SINGLE device — identity is the IP network only.
+        self._login()
+        self._seed_config()
+        uid = self._add_user('A', 30, path='devmulticli1', max_devices=1)['user']['id']
+        for ua in ('v2rayNG/1.8.29', 'Hiddify/2.5.0', 'NapsternetV/85', 'Streisand/1.6'):
+            self.assertTrue(self._is_real(self._fetch('devmulticli1', ip='7.7.7.7', ua=ua)))
+        # still exactly one device slot consumed
+        self.assertEqual(self._get_user(uid)['active_device_count'], 1)
+        # and all those UAs were still recorded in the history breakdown
+        hist = json.loads(self.client.get('/adminpanel/api/users/%d/history' % uid).data)
+        self.assertGreaterEqual(len(hist['user_agents']), 4)
+
     def test_known_device_never_blocked_when_full(self):
         self._login()
         self._seed_config()

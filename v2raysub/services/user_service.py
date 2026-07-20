@@ -476,8 +476,11 @@ def is_bot_user_agent(user_agent):
 def _allow_device(db, user, ip, user_agent):
     """Enforce the per-user device cap using a rolling-window of fingerprints.
 
-    A device = hash(User-Agent + IP network block). A device counts as an
-    active "slot" only if seen within ``device_window_days``. An already-known
+    A device = the IP network block (/24) only — an "IP limit". Switching
+    client apps on one connection sends several UAs but stays one device; the
+    UA is still recorded per device, it just doesn't create a new slot. A
+    device counts as an active "slot" only if seen within ``device_window_days``.
+    An already-known
     device is always refreshed and allowed; a brand-new device is allowed only
     while free slots remain, otherwise rejected (caller serves the dummy config).
 
@@ -494,9 +497,9 @@ def _allow_device(db, user, ip, user_agent):
     max_dev = int(user['max_devices'] or 0)
     if max_dev <= 0:
         return True  # 0 = unlimited
-    fp, net = device_fingerprint(ip, user_agent)
+    fp, net = device_fingerprint(ip)
     if net == 'unknown':
-        return True  # can't identify the device -> don't punish a real user
+        return True  # can't identify the network -> don't punish a real user
 
     now = _utcnow()
     now_str = now.strftime(_TS_FMT)

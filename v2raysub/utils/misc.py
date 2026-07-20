@@ -48,13 +48,16 @@ def network_key(ip):
     return str(net)
 
 
-def device_fingerprint(ip, user_agent):
-    """Stable device id = hash(network-block + User-Agent).
+def device_fingerprint(ip):
+    """Device identity = the IP network block only (an "IP limit").
 
-    Returns (fingerprint, network) where network is the human-readable block
-    used for display. Same UA on the same network block -> same fingerprint.
+    Returns (fingerprint, network) where network is the human-readable block.
+    User-Agent is intentionally excluded from the identity: one person on one
+    connection who tries several client apps sends several UAs but stays a
+    single device. The UA is still recorded per-device for display, it just
+    doesn't create a new slot. Everyone behind the same /24 counts as one
+    device (accepted trade-off — see DEVICE_LIMIT_ROADMAP.md).
     """
     net = network_key(ip)
-    ua = (user_agent or '').strip()
-    fp = hashlib.sha256(f'{net}|{ua}'.encode('utf-8')).hexdigest()[:16]
+    fp = hashlib.sha256(net.encode('utf-8')).hexdigest()[:16]
     return fp, net
