@@ -692,7 +692,10 @@ class AutomationService:
                     src = r.get('source')
                     if not src:
                         continue
-                    if r.get('reachable') and r.get('validation') == 'Success':
+                    # `reachable` (+ a real latency) is the engine's pass flag; the
+                    # `validation` string only names the method ("active_http" /
+                    # "tcp_connect"), never a literal "Success" — see import_discovered_configs.
+                    if r.get('reachable') and r.get('latency_ms') is not None:
                         successful_sources.add(src)
                         working_configs += 1
                     else:
@@ -808,7 +811,7 @@ class AutomationService:
                 
                 disabled_cnt, deleted_cnt = HealthManager.process_health_results(results, started_at_str, scan_id=scan_id)
                 
-                working_configs = len([r for r in results if r.get('reachable') and r.get('validation') == 'Success'])
+                working_configs = len([r for r in results if r.get('reachable') and r.get('latency_ms') is not None])
                 failed_probes = len(results) - working_configs
                 
                 stats = {
