@@ -68,6 +68,12 @@ probe:
   batch_size: 20
   # Parallel sing-box processes; keep low or expect high RAM/socket usage.
   process_concurrency: null
+  # Cull dead endpoints with a cheap TCP-connect sweep before the expensive
+  # sing-box test, so more of every source's queue gets validated within the
+  # scan deadline. UDP-based protocols (hysteria2, tuic, wireguard) skip it and
+  # go straight to active validation. Set false to test every candidate with
+  # sing-box directly.
+  tcp_prefilter: true
   # URL loaded through each candidate to prove reachability.
   test_url: https://www.gstatic.com/generate_204
   # HTTP status codes treated as successful active probes.

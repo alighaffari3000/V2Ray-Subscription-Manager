@@ -16,7 +16,7 @@ use crate::constants::{
     DEFAULT_REQUIRE_TOKEN, DEFAULT_RETURN_CONFIGS_ASAP, DEFAULT_SCAN_ALL_CONFIGS,
     DEFAULT_SHARING_ENABLED, DEFAULT_SHARING_TOKEN, DEFAULT_SING_BOX_PATH,
     DEFAULT_STARTUP_TIMEOUT_MS, DEFAULT_SUBSCRIPTION_ENABLED, DEFAULT_SUBSCRIPTION_PRIORITY,
-    DEFAULT_TEST_URL, DEFAULT_TOP_N, DEFAULT_USE_CACHE_ONLY,
+    DEFAULT_TCP_PREFILTER, DEFAULT_TEST_URL, DEFAULT_TOP_N, DEFAULT_USE_CACHE_ONLY,
 };
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -91,6 +91,8 @@ pub struct ProbeConfig {
     pub batch_size: Option<usize>,
     #[serde(default = "default_probe_process_concurrency")]
     pub process_concurrency: Option<usize>,
+    #[serde(default = "default_tcp_prefilter")]
+    pub tcp_prefilter: bool,
     #[serde(default = "default_test_url")]
     pub test_url: String,
     #[serde(default = "default_accepted_statuses")]
@@ -148,6 +150,7 @@ impl Default for ProbeConfig {
             concurrency: default_probe_concurrency(),
             batch_size: default_probe_batch_size(),
             process_concurrency: default_probe_process_concurrency(),
+            tcp_prefilter: default_tcp_prefilter(),
             test_url: default_test_url(),
             accepted_statuses: default_accepted_statuses(),
             download_url: None,
@@ -559,6 +562,10 @@ const fn default_probe_batch_size() -> Option<usize> {
 
 const fn default_probe_process_concurrency() -> Option<usize> {
     DEFAULT_PROBE_PROCESS_CONCURRENCY
+}
+
+const fn default_tcp_prefilter() -> bool {
+    DEFAULT_TCP_PREFILTER
 }
 
 fn default_test_url() -> String {

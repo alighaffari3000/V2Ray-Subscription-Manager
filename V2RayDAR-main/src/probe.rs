@@ -33,8 +33,9 @@ use crate::{
         ACTIVE_PROBE_BATCH_MIN_SIZE, ACTIVE_PROBE_HTTP_MAX_CONCURRENCY,
         ACTIVE_PROBE_PROCESS_MAX_CONCURRENCY, BITS_PER_BYTE, BITS_PER_MEGABIT,
         LOCAL_PROXY_CONNECT_TIMEOUT, LOCAL_PROXY_WAIT_INTERVAL, LOCALHOST_IP,
+        MAX_TCP_PREFILTER_CONCURRENCY, MIN_TCP_PREFILTER_CONCURRENCY,
         SING_BOX_CLEANUP_TIMEOUT, SING_BOX_CONFIG_FILE_PREFIX, SING_BOX_INBOUND_TAG_PREFIX,
-        SING_BOX_OUTBOUND_TAG_PREFIX,
+        SING_BOX_OUTBOUND_TAG_PREFIX, TCP_PREFILTER_CONCURRENCY_MULTIPLIER,
     },
     convert::{
         decode_base64_bytes, decode_base64_to_string, first_param, json_string, json_u16, json_u64,
@@ -168,7 +169,12 @@ pub async fn probe_candidates(
 
     let ranked = match config.mode {
         ProbeMode::Active => {
-            probe_active_batched(candidates, config, progress.clone(), stop_policy).await
+            if config.tcp_prefilter {
+                probe_active_with_tcp_prefilter(candidates, config, progress.clone(), stop_policy)
+                    .await
+            } else {
+                probe_active_batched(candidates, config, progress.clone(), stop_policy).await
+            }
         }
         ProbeMode::Tcp => {
             if !stop_policy.scan_all_configs {
@@ -449,6 +455,113 @@ impl ProbeStopState {
             remaining_previous_working,
         }
     }
+}
+
+/// Protocols whose transport is UDP/QUIC-based. A plain TCP connect to their
+/// endpoint proves nothing (and usually fails even for a healthy server), so
+/// these bypass the TCP pre-filter and go straight to active validation.
+fn is_udp_protocol(protocol: &str) -> bool {
+    matches!(
+        protocol.trim().to_ascii_lowercase().as_str(),
+        "hysteria2" | "hysteria" | "hy2" | "tuic" | "wireguard" | "wg"
+    )
+}
+
+/// Fan-out for the TCP pre-filter sweep. TCP connects are cheap compared to a
+/// sing-box process, so this runs much wider than active `concurrency`.
+fn tcp_prefilter_concurrency(config: &ProbeConfig) -> usize {
+    config
+        .concurrency
+        .saturating_mul(TCP_PREFILTER_CONCURRENCY_MULTIPLIER)
+        .clamp(MIN_TCP_PREFILTER_CONCURRENCY, MAX_TCP_PREFILTER_CONCURRENCY)
+}
+
+/// Two-stage Active probing.
+///
+/// Stage 1 runs a cheap, high-fan-out TCP connect on every TCP-based candidate
+/// and drops the endpoints that don't even accept a socket — those would fail
+/// the far more expensive sing-box validation anyway. Stage 2 runs the normal
+/// active probe on the survivors plus the UDP/QUIC candidates that skipped
+/// stage 1. The dead endpoints are re-attached to the results as failures so
+/// database stats and progress totals stay accurate.
+///
+/// The point is throughput: by spending a few seconds culling dead servers, a
+/// much larger share of every source's queue reaches active validation before
+/// the scan deadline (`cancel_flag`) fires.
+async fn probe_active_with_tcp_prefilter(
+    candidates: Vec<Candidate>,
+    config: &ProbeConfig,
+    progress: Option<UnboundedSender<ProgressEvent>>,
+    stop_policy: &ProbeStopPolicy,
+) -> Vec<RankedConfig> {
+    let (udp_bypass, tcp_testable): (Vec<Candidate>, Vec<Candidate>) = candidates
+        .into_iter()
+        .partition(|candidate| is_udp_protocol(&candidate.protocol));
+    let udp_count = udp_bypass.len();
+
+    // Nothing to screen (e.g. an all-UDP queue): fall straight through.
+    if tcp_testable.is_empty() {
+        return probe_active_batched(udp_bypass, config, progress, stop_policy).await;
+    }
+
+    send_progress(
+        progress.as_ref(),
+        format!(
+            "TCP pre-filter: screening {} configs ({udp_count} UDP-based configs skip straight to active test)",
+            tcp_testable.len()
+        ),
+    );
+
+    let timeout = Duration::from_millis(config.connect_timeout_ms);
+    let concurrency = tcp_prefilter_concurrency(config);
+    let mut sweep = stream::iter(
+        tcp_testable
+            .into_iter()
+            .map(|candidate| async move { probe_tcp(candidate, timeout).await }),
+    )
+    .buffer_unordered(concurrency);
+
+    let mut reachable: Vec<RankedConfig> = Vec::new();
+    let mut dead: Vec<RankedConfig> = Vec::new();
+    while let Some(result) = sweep.next().await {
+        if result.reachable {
+            reachable.push(result);
+        } else {
+            dead.push(result);
+        }
+        // Respect an external deadline mid-sweep: stop screening and let the
+        // survivors so far proceed to active validation.
+        let cancelled = stop_policy
+            .cancel_flag
+            .as_ref()
+            .map(|flag| flag.load(AtomicOrdering::Relaxed))
+            .unwrap_or(false);
+        if cancelled {
+            break;
+        }
+    }
+    drop(sweep);
+
+    // Dead endpoints were "tested" (and failed) here; report them so progress
+    // counters reconcile with the input size.
+    if !dead.is_empty() {
+        send_probe_delta(progress.as_ref(), dead.len(), 0);
+    }
+    send_progress(
+        progress.as_ref(),
+        format!(
+            "TCP pre-filter done: {} reachable + {udp_count} UDP-based advance to active test; {} dead endpoints skipped",
+            reachable.len(),
+            dead.len()
+        ),
+    );
+
+    let mut active_input = udp_bypass;
+    active_input.extend(candidates_from_ranked(&reachable));
+
+    let mut ranked = probe_active_batched(active_input, config, progress, stop_policy).await;
+    ranked.extend(dead);
+    ranked
 }
 
 #[allow(clippy::too_many_lines)]
@@ -2537,6 +2650,36 @@ mod tests {
         );
         assert_eq!(outbound["tls"]["utls"]["enabled"], true);
         assert_eq!(outbound["tls"]["utls"]["fingerprint"], "chrome");
+    }
+
+    #[test]
+    fn udp_protocols_bypass_tcp_prefilter() {
+        for proto in ["hysteria2", "HY2", "Hysteria", "tuic", "wireguard", "wg", " tuic "] {
+            assert!(is_udp_protocol(proto), "{proto:?} should bypass TCP pre-filter");
+        }
+        for proto in ["vless", "vmess", "trojan", "ss", "ssr", ""] {
+            assert!(!is_udp_protocol(proto), "{proto:?} should be TCP-screened");
+        }
+    }
+
+    #[test]
+    fn tcp_prefilter_concurrency_clamps_to_bounds() {
+        let mut config = ProbeConfig::default();
+        config.concurrency = 1;
+        assert_eq!(
+            tcp_prefilter_concurrency(&config),
+            MIN_TCP_PREFILTER_CONCURRENCY
+        );
+        config.concurrency = 100_000;
+        assert_eq!(
+            tcp_prefilter_concurrency(&config),
+            MAX_TCP_PREFILTER_CONCURRENCY
+        );
+        config.concurrency = 16;
+        assert_eq!(
+            tcp_prefilter_concurrency(&config),
+            16 * TCP_PREFILTER_CONCURRENCY_MULTIPLIER
+        );
     }
 
     #[test]

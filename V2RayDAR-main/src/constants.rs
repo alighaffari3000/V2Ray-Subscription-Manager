@@ -37,6 +37,16 @@ pub const DEFAULT_STARTUP_TIMEOUT_MS: u64 = 5_000;
 pub const DEFAULT_PROBE_CONCURRENCY: usize = 16;
 pub const DEFAULT_PROBE_BATCH_SIZE: Option<usize> = Some(20);
 pub const DEFAULT_PROBE_PROCESS_CONCURRENCY: Option<usize> = None;
+/// When enabled, a cheap TCP-connect sweep drops dead endpoints before the
+/// expensive sing-box (active) validation runs, so more of every source's
+/// queue gets validated within the scan deadline.
+pub const DEFAULT_TCP_PREFILTER: bool = true;
+/// TCP-connect is far lighter than a sing-box process, so the pre-filter stage
+/// runs at a much higher fan-out than active probing. Derived from the active
+/// `concurrency` via this multiplier, then clamped to the range below.
+pub const TCP_PREFILTER_CONCURRENCY_MULTIPLIER: usize = 8;
+pub const MIN_TCP_PREFILTER_CONCURRENCY: usize = 64;
+pub const MAX_TCP_PREFILTER_CONCURRENCY: usize = 512;
 pub const DEFAULT_TEST_URL: &str = "https://www.gstatic.com/generate_204";
 pub const DEFAULT_ACCEPTED_STATUSES: &[u16] = &[204, 200];
 pub const DEFAULT_DOWNLOAD_BYTES_LIMIT: usize = 1_048_576;
