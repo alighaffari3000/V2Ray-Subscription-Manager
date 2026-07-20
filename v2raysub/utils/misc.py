@@ -2,6 +2,9 @@
 """Miscellaneous pure helpers for sizes and base URL resolution."""
 
 import os
+import hashlib
+import ipaddress
+import utils.constants as constants
 
 def get_file_size_formatted(filepath):
     """حجم فایل به صورت خوانا"""
@@ -23,3 +26,35 @@ def get_base_url(request):
     بنابراین اگر SSL نصب نشده باشد، لینک http می‌ماند و لینک https خراب ساخته نمی‌شود.
     """
     return request.host_url
+
+
+def network_key(ip):
+    """Collapse an IP to its network block for device fingerprinting.
+
+    IPv4 -> /24 (e.g. "5.201.130.0/24"), IPv6 -> /48. A device on a churning
+    mobile IP within the same block stays a single device. Returns "unknown"
+    for a missing/unparseable IP so the caller can fail open.
+    """
+    if not ip:
+        return 'unknown'
+    raw = ip.strip()
+    try:
+        addr = ipaddress.ip_address(raw)
+    except ValueError:
+        return 'unknown'
+    prefix = (constants.DEVICE_NETWORK_PREFIX_V4 if addr.version == 4
+              else constants.DEVICE_NETWORK_PREFIX_V6)
+    net = ipaddress.ip_network(f'{raw}/{prefix}', strict=False)
+    return str(net)
+
+
+def device_fingerprint(ip, user_agent):
+    """Stable device id = hash(network-block + User-Agent).
+
+    Returns (fingerprint, network) where network is the human-readable block
+    used for display. Same UA on the same network block -> same fingerprint.
+    """
+    net = network_key(ip)
+    ua = (user_agent or '').strip()
+    fp = hashlib.sha256(f'{net}|{ua}'.encode('utf-8')).hexdigest()[:16]
+    return fp, net

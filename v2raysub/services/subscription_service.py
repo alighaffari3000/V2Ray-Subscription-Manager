@@ -12,6 +12,8 @@ from services.config_service import (
 # Message shown as the config name inside the client when a subscription is
 # expired/paused. Kept here so both the route and tests reference one source.
 EXPIRED_MESSAGE = '⚠️ اشتراک شما به پایان رسیده است ⚠️'
+# Shown when a user hits their device cap and a new device is turned away.
+DEVICE_LIMIT_MESSAGE = '⚠️ سقف تعداد دستگاه پر شده است ⚠️'
 
 
 def _encode(content):

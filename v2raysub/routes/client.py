@@ -4,12 +4,14 @@
 from flask import Blueprint, request, Response
 
 from extensions import limiter
-from services.subscription_service import generate_subscription_content, generate_dummy_content
+from services.subscription_service import (
+    generate_subscription_content, generate_dummy_content, DEVICE_LIMIT_MESSAGE,
+)
 from services.user_service import resolve_user_request
 from services.statistics_service import log_subscription_access
 from utils.constants import (
     STATUS_SUCCESS, STATUS_NOT_FOUND,
-    STATUS_EXPIRED, STATUS_USER_DISABLED, STATUS_USER_PAUSED,
+    STATUS_EXPIRED, STATUS_USER_DISABLED, STATUS_USER_PAUSED, STATUS_DEVICE_LIMIT,
 )
 
 client_bp = Blueprint('client', __name__)
@@ -48,6 +50,9 @@ def subscription(sub_path):
     if outcome == 'paused':
         log_subscription_access(ip, ua, STATUS_USER_PAUSED, sub_path)
         return _text(generate_dummy_content())
+    if outcome == 'device_limit':
+        log_subscription_access(ip, ua, STATUS_DEVICE_LIMIT, sub_path)
+        return _text(generate_dummy_content(DEVICE_LIMIT_MESSAGE))
     # outcome == 'serve'
     log_subscription_access(ip, ua, STATUS_SUCCESS, sub_path)
     return _text(generate_subscription_content())

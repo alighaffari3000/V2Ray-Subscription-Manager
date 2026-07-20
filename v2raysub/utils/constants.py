@@ -16,6 +16,12 @@ STATUS_ERROR = 'ERROR'
 STATUS_EXPIRED = 'EXPIRED'
 STATUS_USER_DISABLED = 'USER_DISABLED'
 STATUS_USER_PAUSED = 'USER_PAUSED'
+STATUS_DEVICE_LIMIT = 'DEVICE_LIMIT'  # device cap reached — served the dummy config
+
+# Device fingerprint network granularity: collapse each IP to its network block
+# so one device on a churning mobile IP stays a single device (see utils/misc.py).
+DEVICE_NETWORK_PREFIX_V4 = 24
+DEVICE_NETWORK_PREFIX_V6 = 48
 
 # الگوی اعتبارسنجی آدرس‌های سابسکریپشن (مسیرهای سراسری)
 PATH_REGEX = r'^[A-Za-z0-9]{3,32}$'

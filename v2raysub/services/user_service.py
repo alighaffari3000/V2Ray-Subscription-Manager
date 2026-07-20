@@ -17,11 +17,12 @@ import string
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from database import get_db
+from database import get_db, get_setting
 from utils.constants import (
     USER_PATH_REGEX, USER_PATH_LENGTH,
     USER_STATUS_ACTIVE, USER_STATUS_PAUSED, USER_STATUS_DISABLED, USER_STATUS_EXPIRED,
 )
+from utils.misc import device_fingerprint
 
 _TS_FMT = '%Y-%m-%d %H:%M:%S'
 
@@ -36,6 +37,16 @@ def _utcnow():
 
 def _utcnow_str():
     return _utcnow().strftime(_TS_FMT)
+
+
+def _device_window_cutoff(now=None):
+    """Timestamp string before which a device slot is considered stale/free."""
+    now = now or _utcnow()
+    try:
+        window_days = int(get_setting('device_window_days', '7'))
+    except (TypeError, ValueError):
+        window_days = 7
+    return (now - timedelta(days=window_days)).strftime(_TS_FMT)
 
 
 def _parse(ts):
@@ -163,10 +174,22 @@ def get_all_users():
     db = get_db()
     try:
         rows = db.execute('SELECT * FROM users ORDER BY created_at DESC, id DESC').fetchall()
+        now = _utcnow()
+        cutoff = _device_window_cutoff(now)
+        counts = {
+            r['user_id']: r['c'] for r in db.execute(
+                'SELECT user_id, COUNT(*) AS c FROM user_devices '
+                'WHERE last_seen >= ? GROUP BY user_id', (cutoff,)
+            ).fetchall()
+        }
     finally:
         db.close()
-    now = _utcnow()
-    return [_decorate(dict(r), now) for r in rows]
+    result = []
+    for r in rows:
+        u = _decorate(dict(r), now)
+        u['active_device_count'] = counts.get(u['id'], 0)
+        result.append(u)
+    return result
 
 
 def get_user(user_id):
@@ -310,6 +333,7 @@ def delete_user(user_id):
         row = db.execute('SELECT 1 FROM users WHERE id = ?', (user_id,)).fetchone()
         if not row:
             return False, 'کاربر پیدا نشد'
+        db.execute('DELETE FROM user_devices WHERE user_id = ?', (user_id,))
         db.execute('DELETE FROM users WHERE id = ?', (user_id,))
         db.commit()
         return True, 'کاربر با موفقیت حذف شد.'
@@ -393,6 +417,8 @@ def reset_user(user_id):
                status = ?, updated_at = ? WHERE id = ?''',
             (USER_STATUS_ACTIVE, _utcnow_str(), user_id)
         )
+        # Reset restarts the lifecycle -> free the device slots too.
+        db.execute('DELETE FROM user_devices WHERE user_id = ?', (user_id,))
         db.commit()
         return True, 'وضعیت فعال‌سازی کاربر ریست شد.'
     except Exception as e:
@@ -429,6 +455,75 @@ def set_user_enabled(user_id, enabled):
 # ---------------------------------------------------------------------------
 # subscription request resolution (used by routes/client.py)
 # ---------------------------------------------------------------------------
+def _allow_device(db, user, ip, user_agent):
+    """Enforce the per-user device cap using a rolling-window of fingerprints.
+
+    A device = hash(User-Agent + IP network block). A device counts as an
+    active "slot" only if seen within ``device_window_days``. An already-known
+    device is always refreshed and allowed; a brand-new device is allowed only
+    while free slots remain, otherwise rejected (caller serves the dummy config).
+
+    Returns True to serve the real list, False to serve the device-limit dummy.
+    Fails open (True) on unlimited caps, missing IPs, or any unexpected error.
+    """
+    max_dev = int(user['max_devices'] or 0)
+    if max_dev <= 0:
+        return True  # 0 = unlimited
+    fp, net = device_fingerprint(ip, user_agent)
+    if net == 'unknown':
+        return True  # can't identify the device -> don't punish a real user
+
+    now = _utcnow()
+    now_str = now.strftime(_TS_FMT)
+    try:
+        dev = db.execute(
+            'SELECT id FROM user_devices WHERE user_id = ? AND fingerprint = ?',
+            (user['id'], fp)
+        ).fetchone()
+        if dev:
+            db.execute(
+                'UPDATE user_devices SET last_seen = ?, last_ip = ?, '
+                'user_agent = ?, network = ?, hits = hits + 1 WHERE id = ?',
+                (now_str, ip, user_agent, net, dev['id'])
+            )
+            db.commit()
+            return True  # known device — never blocked
+
+        # Optional grace: don't enforce the cap right after activation, but still
+        # register the device so it's part of the known set going forward.
+        try:
+            grace_hours = int(get_setting('device_grace_hours', '0'))
+        except (TypeError, ValueError):
+            grace_hours = 0
+        in_grace = False
+        if grace_hours > 0:
+            activated = _parse(user['activated_at'])
+            if activated is not None and (now - activated) < timedelta(hours=grace_hours):
+                in_grace = True
+
+        cutoff = _device_window_cutoff(now)
+        active = db.execute(
+            'SELECT COUNT(*) AS c FROM user_devices '
+            'WHERE user_id = ? AND last_seen >= ?',
+            (user['id'], cutoff)
+        ).fetchone()['c']
+
+        if in_grace or active < max_dev:
+            # UNIQUE(user_id, fingerprint) guards against a concurrent double-insert.
+            db.execute(
+                'INSERT OR IGNORE INTO user_devices '
+                '(user_id, fingerprint, first_seen, last_seen, network, last_ip, user_agent, hits) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?, 1)',
+                (user['id'], fp, now_str, now_str, net, ip, user_agent)
+            )
+            db.commit()
+            return True
+        return False
+    except Exception as e:
+        print(f"Error enforcing device limit: {e}")
+        return True  # fail open
+
+
 def resolve_user_request(sub_path, ip=None, user_agent=None):
     """Resolve a subscription hit for a user path.
 
@@ -481,6 +576,11 @@ def resolve_user_request(sub_path, ip=None, user_agent=None):
         expire = _parse(user['expire_at'])
         if expire is not None and expire < _utcnow():
             return ('expired', user)
+
+        # Device cap: register/refresh this device, block only a *new* device
+        # once the rolling-window slots are full. Known devices are never blocked.
+        if not _allow_device(db, user, ip, user_agent):
+            return ('device_limit', user)
         return ('serve', user)
     except Exception as e:
         print(f"Error resolving user request: {e}")
@@ -524,5 +624,97 @@ def get_user_history(user_id, limit=200):
             'user_agents': [dict(r) for r in uas],
             'history': [dict(r) for r in rows],
         }
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# device management (see DEVICE_LIMIT_ROADMAP.md)
+# ---------------------------------------------------------------------------
+def list_user_devices(user_id):
+    """Registered devices for a user (active-first). Returns None if no user.
+
+    Each device carries an ``is_active`` flag (seen within the rolling window)
+    and localized first/last-seen strings. Also returns the cap and the count
+    of currently-active devices."""
+    db = get_db()
+    try:
+        u = db.execute('SELECT max_devices FROM users WHERE id = ?', (user_id,)).fetchone()
+        if not u:
+            return None
+        now = _utcnow()
+        cutoff = _device_window_cutoff(now)
+        rows = db.execute(
+            'SELECT id, fingerprint, network, last_ip, user_agent, hits, '
+            'first_seen, last_seen FROM user_devices '
+            'WHERE user_id = ? ORDER BY last_seen DESC',
+            (user_id,)
+        ).fetchall()
+        devices = []
+        active = 0
+        for r in rows:
+            d = dict(r)
+            is_active = (str(d['last_seen']) >= cutoff)
+            if is_active:
+                active += 1
+            d['is_active'] = is_active
+            d['first_seen_local'] = _to_local_str(_parse(d['first_seen']))
+            d['last_seen_local'] = _to_local_str(_parse(d['last_seen']))
+            devices.append(d)
+        return {
+            'max_devices': int(u['max_devices'] or 0),
+            'active_device_count': active,
+            'devices': devices,
+        }
+    finally:
+        db.close()
+
+
+def reset_user_devices(user_id):
+    """Forget all of a user's devices, freeing every slot. Returns (ok, msg)."""
+    db = get_db()
+    try:
+        if not db.execute('SELECT 1 FROM users WHERE id = ?', (user_id,)).fetchone():
+            return False, 'کاربر پیدا نشد'
+        db.execute('DELETE FROM user_devices WHERE user_id = ?', (user_id,))
+        db.commit()
+        return True, 'دستگاه‌های کاربر پاک شدند.'
+    except Exception as e:
+        print(f"Error resetting user devices: {e}")
+        return False, 'خطا در پاک‌کردن دستگاه‌ها'
+    finally:
+        db.close()
+
+
+def delete_user_device(user_id, device_id):
+    """Kick a single device (frees its slot). Returns (ok, msg)."""
+    db = get_db()
+    try:
+        row = db.execute(
+            'SELECT 1 FROM user_devices WHERE id = ? AND user_id = ?',
+            (device_id, user_id)
+        ).fetchone()
+        if not row:
+            return False, 'دستگاه پیدا نشد'
+        db.execute('DELETE FROM user_devices WHERE id = ? AND user_id = ?', (device_id, user_id))
+        db.commit()
+        return True, 'دستگاه حذف شد.'
+    except Exception as e:
+        print(f"Error deleting user device: {e}")
+        return False, 'خطا در حذف دستگاه'
+    finally:
+        db.close()
+
+
+def cleanup_stale_devices(retention_days=30):
+    """Prune device rows far past the active window to cap table growth.
+    Mirrors the health-history retention in automation_service."""
+    db = get_db()
+    try:
+        cutoff = (_utcnow() - timedelta(days=retention_days)).strftime(_TS_FMT)
+        db.execute('DELETE FROM user_devices WHERE last_seen < ?', (cutoff,))
+        db.commit()
+    except Exception as e:
+        print(f"Error cleaning up stale devices: {e}")
     finally:
         db.close()
