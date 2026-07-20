@@ -1,0 +1,28 @@
+# Changelog
+
+تمام تغییرهای قابل‌توجه این پروژه در این فایل ثبت می‌شوند.
+
+قالب بر اساس [Keep a Changelog](https://keepachangelog.com/fa/1.1.0/)
+و نسخه‌گذاری بر اساس [Semantic Versioning](https://semver.org/lang/fa/) است.
+
+فرمت نسخه: `MAJOR.MINOR.PATCH`
+- **MAJOR** — تغییرهای ناسازگار با نسخه‌های قبل.
+- **MINOR** — افزودن قابلیت جدید به‌صورت سازگار با نسخه‌های قبل.
+- **PATCH** — رفع باگ به‌صورت سازگار با نسخه‌های قبل.
+
+## [Unreleased]
+
+### Added
+- (تغییرهای منتشرنشده‌ی بعدی اینجا ثبت می‌شوند)
+
+## [1.0.0] - 2026-07-21
+
+اولین نسخه‌ی رسمی و پایدار.
+
+### Added
+- نسخه‌گذاری معنایی (SemVer) با فایل `VERSION` به‌عنوان تنها منبع حقیقت.
+- نمایش نسخه در پایان نصب/آپدیت: «Version X.Y.Z installed/updated successfully».
+- مدیریت کاربران (user-management) و محدودیت تعداد دستگاه (device-limit).
+
+[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/releases/tag/v1.0.0

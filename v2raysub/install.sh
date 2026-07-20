@@ -119,6 +119,13 @@ if [ ! -f "$SCRIPT_DIR/app_factory.py" ]; then
     exec bash "$TMP_DIR/V2Ray-Subscription-Manager-master/v2raysub/install.sh"
 fi
 
+# ── Version ──────────────────────────────────────────────────────
+# Single source of truth: the VERSION file that ships beside this script
+# (and is copied into the install below). Read it once here so the closing
+# banner can report exactly which version was installed/updated.
+APP_VERSION="$(tr -d '[:space:]' < "$SCRIPT_DIR/VERSION" 2>/dev/null)"
+[ -z "$APP_VERSION" ] && APP_VERSION="unknown"
+
 # ── Update vs. fresh install ─────────────────────────────────────
 # Re-running this same one-line command should update an existing install
 # (new code, dependencies, and engine binary) rather than re-ask for a domain,
@@ -212,6 +219,7 @@ echo -e "${GREEN}[3/8] Copying project files...${NC}"
 if [ "$SCRIPT_DIR" != "$PROJECT_DIR" ]; then
     cp -r "$SCRIPT_DIR/app.py" "$SCRIPT_DIR/app_factory.py" "$SCRIPT_DIR/config.py" \
           "$SCRIPT_DIR/database.py" "$SCRIPT_DIR/extensions.py" "$SCRIPT_DIR/requirements.txt" \
+          "$SCRIPT_DIR/VERSION" \
           "$SCRIPT_DIR/templates" "$SCRIPT_DIR/routes" "$SCRIPT_DIR/services" \
           "$SCRIPT_DIR/utils" "$PROJECT_DIR/"
     # V2RayDAR sources, used only as a fallback if the prebuilt binary is unusable
@@ -605,9 +613,9 @@ fi
 echo ""
 echo -e "${GREEN}==========================================${NC}"
 if [ "$EXISTING_INSTALL" = "1" ]; then
-    echo -e "${GREEN} Update complete.${NC}"
+    echo -e "${GREEN} Version $APP_VERSION updated successfully.${NC}"
 else
-    echo -e "${GREEN} Installation complete.${NC}"
+    echo -e "${GREEN} Version $APP_VERSION installed successfully.${NC}"
 fi
 echo -e "${GREEN}==========================================${NC}"
 echo ""

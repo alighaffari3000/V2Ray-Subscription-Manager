@@ -8,7 +8,28 @@ from dotenv import load_dotenv
 # بارگذاری متغیرهای محیطی از فایل .env
 load_dotenv()
 
+
+def _read_version():
+    """نسخه‌ی برنامه را از فایل VERSION کنار همین ماژول می‌خواند.
+
+    VERSION تنها منبع حقیقت نسخه است (SemVer). نصب/آپدیت و برنامه هر دو از
+    همین فایل می‌خوانند تا نسخه در یک جا نگهداری شود. اگر فایل نبود (مثلاً
+    اجرای غیرمعمول)، به «unknown» برمی‌گردیم تا برنامه از کار نیفتد.
+    """
+    try:
+        with open(os.path.join(os.path.dirname(__file__), 'VERSION'), encoding='utf-8') as f:
+            return f.read().strip() or 'unknown'
+    except OSError:
+        return 'unknown'
+
+
+__version__ = _read_version()
+
+
 class Config:
+    # نسخه‌ی برنامه (SemVer) — از فایل VERSION خوانده می‌شود.
+    APP_VERSION = __version__
+
     # کلید امنیتی سشن‌ها — باید ثابت و مشترک بین همه workerها باشد.
     # اگر تصادفی تولید شود، هر worker گونیکورن کلید متفاوتی می‌سازد و سشن‌ها
     # به صورت تصادفی نامعتبر می‌شوند؛ پس در نبودش با پیام واضح متوقف می‌شویم.
