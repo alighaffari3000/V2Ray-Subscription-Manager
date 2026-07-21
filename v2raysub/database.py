@@ -224,6 +224,10 @@ def init_db():
     db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('device_window_days', '7')")
     db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('device_grace_hours', '0')")
 
+    # How often (hours) subscription clients like Hiddify should auto-refresh
+    # the sub; sent as the Profile-Update-Interval header (routes/client.py).
+    db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('profile_update_interval_hours', '6')")
+
     # Seed backup configurations
     db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('backup_scheduled_enabled', '0')")
     db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('backup_interval', 'daily')")

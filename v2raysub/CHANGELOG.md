@@ -12,6 +12,39 @@
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-07-21
+
+### Added
+- **تنظیم‌پذیری فاصله رفرش خودکار ساب از پنل.** مقدار هدر `Profile-Update-Interval`
+  دیگر ثابت (۶ ساعت) نیست و از تنظیمات اتوماسیون پنل مدیریت (کلید
+  `profile_update_interval_hours`, پیش‌فرض ۶ ساعت) خوانده می‌شود.
+
+## [1.5.0] - 2026-07-21
+
+### Added
+- **فاصله رفرش خودکار ساب.** هدر `Profile-Update-Interval: 6` به پاسخ ساب اضافه شد
+  تا کلاینت‌هایی مثل Hiddify هر ۶ ساعت یک‌بار ساب را خودکار رفرش کنند.
+
+## [1.4.0] - 2026-07-21
+
+### Added
+- **هدرهای استاندارد اطلاعات اشتراک برای کلاینت‌هایی مثل Hiddify.** پاسخ ساب حالا
+  هدر `Subscription-Userinfo` (فیلد `expire`) و `Profile-Title` را هم می‌فرستد.
+  کلاینت‌هایی مثل Hiddify، v2rayN/v2rayNG و Nekoray این‌ها را به‌صورت بومی در UI خودشان
+  نمایش می‌دهند (نه فقط در اسم کانفیگ): روز باقی‌مانده به‌عنوان یک پارامتر شناخته‌شده
+  توسط خود کلاینت محاسبه و نشان داده می‌شود، و تعداد دستگاه فعال/سقف مجاز در عنوان
+  خود اشتراک (`Profile-Title`, base64) قرار می‌گیرد. فیلدهای حجم (`upload`/`download`/
+  `total`) عمداً ارسال نمی‌شوند چون پلن نامحدود است و `total=0` در برخی کلاینت‌ها به
+  «حجم تمام‌شده» تفسیر می‌شود نه «نامحدود».
+
+## [1.3.0] - 2026-07-21
+
+### Added
+- **کانفیگ‌های نمایشی وضعیت در ابتدای اشتراک.** حالا هر ساب با دو کانفیگ dummy
+  (بدون پراکسی واقعی) شروع می‌شود که فقط برای نمایش اطلاعات به کاربر هستند: تعداد
+  دستگاه‌های فعال از سقف مجاز (`1 / 3 دستگاه`) و روز باقی‌مانده تا انقضا (`روز باقی
+  مانده: 25 روز`). وقتی ۳ روز یا کمتر مانده باشد، ایموجی 🔴 به‌عنوان هشدار اضافه می‌شود.
+
 ## [1.2.1] - 2026-07-21
 
 ### Fixed
@@ -77,7 +110,11 @@
 - نمایش نسخه در پایان نصب/آپدیت: «Version X.Y.Z installed/updated successfully».
 - مدیریت کاربران (user-management) و محدودیت تعداد دستگاه (device-limit).
 
-[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.2.1...HEAD
+[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.5.0...v1.6.0
+[1.5.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.4.0...v1.5.0
+[1.4.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.3.0...v1.4.0
+[1.3.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.1.0...v1.1.1

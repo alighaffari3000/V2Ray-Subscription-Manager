@@ -8,6 +8,7 @@ from database import get_setting
 from services.config_service import (
     get_all_configs, get_subscription_remark, format_config_remark
 )
+from services.user_service import get_dummy_status_texts
 
 # Message shown as the config name inside the client when a subscription is
 # expired/paused. Kept here so both the route and tests reference one source.
@@ -23,11 +24,21 @@ def _encode(content):
     return content
 
 
-def generate_subscription_content():
-    """Generate the subscription file content (base64 or plain)."""
+def generate_subscription_content(user=None):
+    """Generate the subscription file content (base64 or plain).
+
+    When ``user`` is given, two dummy configs are prepended whose names show
+    the user's device usage and remaining days — informational only, they
+    carry no working proxy.
+    """
     configs = get_all_configs()
 
     config_lines = []
+    if user is not None:
+        device_text, days_text = get_dummy_status_texts(user)
+        config_lines.append(f'trojan://status@127.0.0.1:443#{quote(device_text)}')
+        config_lines.append(f'trojan://status@127.0.0.1:443#{quote(days_text)}')
+
     for i, config in enumerate(configs, 1):
         remark = get_subscription_remark(i, config['config_text'], config['config_type'])
         formatted_config = format_config_remark(config['config_text'], config['config_type'], remark)

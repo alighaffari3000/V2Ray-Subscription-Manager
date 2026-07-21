@@ -1,13 +1,16 @@
 # -*- coding: utf-8 -*-
 """Client-facing subscription endpoint."""
 
+from base64 import b64encode
+
 from flask import Blueprint, request, Response
 
+from database import get_setting
 from extensions import limiter
 from services.subscription_service import (
     generate_subscription_content, generate_dummy_content, DEVICE_LIMIT_MESSAGE,
 )
-from services.user_service import resolve_user_request
+from services.user_service import resolve_user_request, get_subscription_headers
 from services.statistics_service import log_subscription_access
 from utils.constants import (
     STATUS_SUCCESS, STATUS_NOT_FOUND,
@@ -55,4 +58,10 @@ def subscription(sub_path):
         return _text(generate_dummy_content(DEVICE_LIMIT_MESSAGE))
     # outcome == 'serve'
     log_subscription_access(ip, ua, STATUS_SUCCESS, sub_path)
-    return _text(generate_subscription_content())
+    resp = _text(generate_subscription_content(_user))
+    profile_title, expire_ts = get_subscription_headers(_user)
+    resp.headers['Profile-Title'] = 'base64:' + b64encode(profile_title.encode('utf-8')).decode('ascii')
+    resp.headers['Profile-Update-Interval'] = get_setting('profile_update_interval_hours', '6')
+    if expire_ts is not None:
+        resp.headers['Subscription-Userinfo'] = f'expire={expire_ts}'
+    return resp

@@ -657,6 +657,58 @@ def get_user_history(user_id, limit=200):
 
 
 # ---------------------------------------------------------------------------
+# dummy status configs (see [subscription_service.generate_subscription_content])
+# ---------------------------------------------------------------------------
+def get_dummy_status_texts(user):
+    """Build the two display-only strings shown as fake configs at the top of
+    a served subscription: current device usage and remaining time. Callers
+    turn these into dummy config remarks (see subscription_service.py)."""
+    max_dev = int(user.get('max_devices') or 0)
+    if max_dev > 0:
+        db = get_db()
+        try:
+            cutoff = _device_window_cutoff()
+            count = db.execute(
+                'SELECT COUNT(*) AS c FROM user_devices WHERE user_id = ? AND last_seen >= ?',
+                (user['id'], cutoff)
+            ).fetchone()['c']
+        finally:
+            db.close()
+        device_text = f'{count} / {max_dev} دستگاه'
+    else:
+        device_text = 'دستگاه: نامحدود'
+
+    secs, _ = _remaining(user)
+    if secs is None:
+        days_text = 'روز باقی مانده: نامحدود'
+    else:
+        days = -(-secs // 86400)  # ceil: any leftover time counts as a full day
+        warn = '🔴 ' if days <= 3 else ''
+        days_text = f'{warn}روز باقی مانده: {days} روز'
+
+    return device_text, days_text
+
+
+def get_subscription_headers(user):
+    """Values for the standard subscription-info HTTP headers that clients
+    like Hiddify, v2rayN/v2rayNG and Nekoray read natively (not from a config
+    name): ``Profile-Title`` (shown as the subscription's display name — we
+    put the device count here since there's no standard field for it) and the
+    ``expire`` field of ``Subscription-Userinfo`` (remaining days is a
+    well-known parameter clients already render on their own).
+
+    Returns (profile_title_text, expire_unix_ts_or_None). Traffic fields
+    (upload/download/total) are deliberately omitted: quota is unlimited, and
+    sending total=0 gets misread by some clients as "no quota left" instead
+    of "unlimited".
+    """
+    device_text, _ = get_dummy_status_texts(user)
+    expire = _parse(user.get('expire_at'))
+    expire_ts = int(expire.replace(tzinfo=timezone.utc).timestamp()) if expire else None
+    return device_text, expire_ts
+
+
+# ---------------------------------------------------------------------------
 # device management (see DEVICE_LIMIT_ROADMAP.md)
 # ---------------------------------------------------------------------------
 def list_user_devices(user_id):

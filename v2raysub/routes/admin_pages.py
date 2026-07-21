@@ -102,6 +102,7 @@ def admin():
     scan_timeout = get_setting('scan_timeout', '1200')
     device_window_days = get_setting('device_window_days', '7')
     device_grace_hours = get_setting('device_grace_hours', '0')
+    profile_update_interval_hours = get_setting('profile_update_interval_hours', '6')
 
     # Backup Settings
     backup_scheduled_enabled = get_setting('backup_scheduled_enabled', '0')
@@ -142,6 +143,7 @@ def admin():
         scan_timeout=scan_timeout,
         device_window_days=device_window_days,
         device_grace_hours=device_grace_hours,
+        profile_update_interval_hours=profile_update_interval_hours,
         backup_scheduled_enabled=backup_scheduled_enabled,
         backup_interval=backup_interval,
         backup_scheduled_type=backup_scheduled_type,
