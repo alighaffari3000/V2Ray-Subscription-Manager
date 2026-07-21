@@ -436,7 +436,16 @@
         @media (max-width: 860px) {
             #menu-toggle { display: inline-flex; }
             .sidebar {
-                position: fixed; inset-inline-end: 0; top: 0;
+                /* Drawer anchored to the physical right edge. We use explicit
+                   physical properties (not inset-inline-*) because this doc is
+                   RTL: `inset-inline-end` would resolve to the LEFT edge, and
+                   combined with the rightward `translateX(100%)` hide transform
+                   the closed panel would land in the middle of the screen. */
+                position: fixed; right: 0; left: auto; top: 0;
+                width: min(86vw, var(--sidebar-w));
+                height: 100vh; height: 100dvh;
+                border-inline-start: none;
+                border-inline-end: 1px solid var(--border);
                 transform: translateX(100%);
                 box-shadow: var(--shadow);
             }

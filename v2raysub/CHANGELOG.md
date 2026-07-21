@@ -12,6 +12,17 @@
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-07-21
+
+### Fixed
+- **خرابی UI پنل مدیریت روی موبایل.** در media query موبایل، نوار کناری با
+  `inset-inline-end` مقداردهی شده بود که چون کل صفحه RTL است به لبه‌ی چپ resolve می‌شد،
+  و ترنسفورمِ مخفی‌سازی (`translateX(100%)`) پنلِ بسته را به‌جای خارج‌کردن از صفحه، وسط
+  صفحه می‌نشاند و روی محتوا می‌افتاد (در حالت عمودی محتوا پوشیده می‌شد و در حالت افقی
+  نوار کناری وسط دیده می‌شد). اکنون نوار کناری با پراپرتی‌های فیزیکی (`right`) به لبه‌ی
+  راست چسبیده و کاملاً از صفحه خارج می‌شود؛ عرض آن هم به `min(86vw, --sidebar-w)` و
+  ارتفاعش به `100dvh` محدود شد.
+
 ## [1.2.0] - 2026-07-21
 
 ### Added
@@ -66,7 +77,8 @@
 - نمایش نسخه در پایان نصب/آپدیت: «Version X.Y.Z installed/updated successfully».
 - مدیریت کاربران (user-management) و محدودیت تعداد دستگاه (device-limit).
 
-[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.0.0...v1.1.0
