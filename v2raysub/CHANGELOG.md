@@ -12,6 +12,16 @@
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-07-21
+
+### Fixed
+- **نمایش اشتباه حجم به‌جای «نامحدود» در هیدیفای.** فرستادن `total=0` باعث می‌شد هیدیفای
+  (نسخه‌ی ۴.۱.۱ و پایین‌تر) یک sentinel داخلی برابر ۸۵۷ گیگ (۹۲۰٬۲۳۳٬۷۲۰٬۳۶۸ بایت)
+  جایگزین کند که چون زیر آستانه‌ی ~۱۰ ترابایتِ «نامحدود» است، به‌شکل یک سقف محدود نمایش
+  داده می‌شد (باگ hiddify-app #1974). اکنون `total` برابر ۱۰۰۰ تِبی‌بایت
+  (`1099511627776000`) ارسال می‌شود که بالای آن آستانه است و در هیدیفای ۴.۱.۱ و نسخه‌های
+  جدیدتر به‌درستی ∞ نمایش داده می‌شود؛ روزهای باقی‌مانده هم دست‌نخورده باقی می‌ماند.
+
 ## [1.6.1] - 2026-07-21
 
 ### Fixed
@@ -119,7 +129,9 @@
 - نمایش نسخه در پایان نصب/آپدیت: «Version X.Y.Z installed/updated successfully».
 - مدیریت کاربران (user-management) و محدودیت تعداد دستگاه (device-limit).
 
-[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.6.2...HEAD
+[1.6.2]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.6.1...v1.6.2
+[1.6.1]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.3.0...v1.4.0

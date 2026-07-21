@@ -65,10 +65,16 @@ def subscription(sub_path):
     if expire_ts is not None:
         # Hiddify (and other Marzban/Clash-lineage clients) only render the
         # sub-info panel — including remaining days — when all four fields are
-        # present. An expire-only header is silently ignored. total=0 is the
-        # Marzban convention for "unlimited traffic", shown as ∞, so remaining
-        # days still displays without implying a quota.
+        # present; an expire-only header is silently ignored.
+        #
+        # For unlimited traffic we can't use total=0: Hiddify (<= 4.1.1)
+        # substitutes an internal sentinel of 920,233,720,368 bytes (= 857.03
+        # GiB) for total=0, which sits *below* its ~10 TB "infinite" gate and
+        # so renders as a finite cap instead of ∞ (hiddify-app #1974, fixed
+        # later in #2241). Sending a total *above* that gate makes both 4.1.1
+        # and newer builds show ∞. 1000 TiB (1000 * 1024^4) is safely above it.
+        UNLIMITED_TOTAL = 1099511627776000  # 1000 TiB, renders as ∞ in Hiddify
         resp.headers['Subscription-Userinfo'] = (
-            f'upload=0; download=0; total=0; expire={expire_ts}'
+            f'upload=0; download=0; total={UNLIMITED_TOTAL}; expire={expire_ts}'
         )
     return resp
