@@ -12,6 +12,17 @@
 
 ## [Unreleased]
 
+## [1.6.3] - 2026-07-21
+
+### Fixed
+- **کرش سرور حین اسکن‌های سنگین discovery/health-check.** واحد systemd سقف منابعی
+  نداشت، در حالی که worker اسکن می‌تواند چند پروسه‌ی sing-box را هم‌زمان برای probe
+  اجرا کند؛ روی VPSهای کوچک این باعث OOM-kill و کرش کل سرور می‌شد. اکنون واحد
+  سرویس (هم در `install.sh` و هم فایل مرجع `v2ray-sub.service`) با
+  `MemoryHigh=1200M`, `MemoryMax=1400M`, `CPUQuota=90%` محدود شده تا یک اسکن
+  سنگین جای کافی برای OS/nginx/redis باقی بگذارد و به‌جای کرش کل سرور، فقط
+  throttle شود.
+
 ## [1.6.2] - 2026-07-21
 
 ### Fixed
@@ -129,7 +140,8 @@
 - نمایش نسخه در پایان نصب/آپدیت: «Version X.Y.Z installed/updated successfully».
 - مدیریت کاربران (user-management) و محدودیت تعداد دستگاه (device-limit).
 
-[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.6.2...HEAD
+[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.6.3...HEAD
+[1.6.3]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.6.2...v1.6.3
 [1.6.2]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.6.1...v1.6.2
 [1.6.1]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.5.0...v1.6.0

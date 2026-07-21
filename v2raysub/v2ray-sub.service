@@ -24,6 +24,13 @@ NoNewPrivileges=true
 Restart=always
 RestartSec=10
 
+# محدودیت منابع: اسکن‌های discovery/health-check چند sing-box هم‌زمان اجرا
+# می‌کنند؛ بدون سقف، مصرف رم می‌تواند کل VPS را OOM-kill کند. مقادیر برای
+# سرور 2GB تنظیم شده‌اند تا جای کافی برای OS/nginx/redis بماند.
+MemoryHigh=1200M
+MemoryMax=1400M
+CPUQuota=90%
+
 # لاگ‌ها
 StandardOutput=journal
 StandardError=journal

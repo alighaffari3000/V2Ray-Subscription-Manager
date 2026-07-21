@@ -578,6 +578,15 @@ write_file /etc/systemd/system/v2ray-sub.service \
     "ExecStart=$PROJECT_DIR/venv/bin/gunicorn --workers 3 --bind 127.0.0.1:5000 app:app" \
     "Restart=always" \
     "" \
+    "# Discovery/health-check scans shell out to the V2RayDAR worker, which can" \
+    "# spawn several sing-box probe subprocesses at once. Without a cap, a heavy" \
+    "# scan can exhaust system RAM and get the whole VPS OOM-killed. These limits" \
+    "# apply to the gunicorn process AND everything it forks (the scan subprocess" \
+    "# tree), sized for a 2GB VPS: leaves headroom for the OS, nginx and redis." \
+    "MemoryHigh=1200M" \
+    "MemoryMax=1400M" \
+    "CPUQuota=90%" \
+    "" \
     "[Install]" \
     "WantedBy=multi-user.target"
 
