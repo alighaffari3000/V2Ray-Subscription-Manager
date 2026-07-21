@@ -36,6 +36,7 @@ use crate::{
         MAX_TCP_PREFILTER_CONCURRENCY, MIN_TCP_PREFILTER_CONCURRENCY,
         SING_BOX_CLEANUP_TIMEOUT, SING_BOX_CONFIG_FILE_PREFIX, SING_BOX_INBOUND_TAG_PREFIX,
         SING_BOX_OUTBOUND_TAG_PREFIX, TCP_PREFILTER_CONCURRENCY_MULTIPLIER,
+        TCP_PREFILTER_CONNECT_TIMEOUT_MS,
     },
     convert::{
         decode_base64_bytes, decode_base64_to_string, first_param, json_string, json_u16, json_u64,
@@ -519,7 +520,10 @@ async fn probe_active_with_tcp_prefilter(
         ),
     );
 
-    let timeout = Duration::from_millis(config.connect_timeout_ms);
+    // Use a shorter connect timeout than the main probe: dead hosts dominate the
+    // sweep and each one blocks for the full timeout, so capping it here is the
+    // biggest single lever on pre-filter wall-clock.
+    let timeout = Duration::from_millis(config.connect_timeout_ms.min(TCP_PREFILTER_CONNECT_TIMEOUT_MS));
     let concurrency = tcp_prefilter_concurrency(config);
     let mut sweep = stream::iter(
         tcp_testable

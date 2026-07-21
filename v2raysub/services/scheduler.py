@@ -4,7 +4,7 @@
 import time
 import threading
 from database import get_setting
-from services.automation_service import AutomationService
+from services.automation_service import AutomationService, is_scan_active
 import utils.constants as constants
 from utils.process_lock import InterProcessLock
 
@@ -41,41 +41,55 @@ def scheduler_worker(app):
                     health_interval = 600.0
                 
                 now = time.monotonic()
-                
-                # Check if it's time for Auto Discovery
-                if now - last_discovery >= scan_interval:
-                    last_discovery = now
-                    print(f"Triggering Auto Discovery from scheduler. Interval configured: {scan_interval}s")
-                    threading.Thread(
-                        target=AutomationService.run_scan,
-                        args=('discovery',),
-                        daemon=True
-                    ).start()
-                
-                # Check if it's time for Health Check
-                if now - last_health >= health_interval:
-                    last_health = now
-                    print(f"Triggering Health Check from scheduler. Interval configured: {health_interval}s")
-                    threading.Thread(
-                        target=AutomationService.run_scan,
-                        args=('health_check',),
-                        daemon=True
-                    ).start()
-                    # Piggyback device-slot retention on the health tick.
-                    try:
-                        from services.user_service import cleanup_stale_devices
-                        cleanup_stale_devices()
-                    except Exception as e_dev:
-                        print(f"Error cleaning up stale devices: {e_dev}")
+                discovery_due = (now - last_discovery) >= scan_interval
+                health_due = (now - last_health) >= health_interval
 
-                    # Piggyback subscription-log retention on the health tick too.
-                    try:
-                        from services.statistics_service import prune_old_subscription_logs
-                        deleted = prune_old_subscription_logs()
-                        if deleted:
-                            print(f"Pruned {deleted} old subscription log rows.")
-                    except Exception as e_log:
-                        print(f"Error pruning old subscription logs: {e_log}")
+                # Discovery and health share one scan lock and can't run at once.
+                # With health_interval a multiple of scan_interval they come due on
+                # the same tick, and discovery (started first) used to win the lock
+                # every time — starving health forever, so dead configs were never
+                # pruned and capacity never freed. Two rules fix that:
+                #   1. Never burn a due-timer while a scan is already running; let
+                #      the due scan fire as soon as the lock frees. No lost turns,
+                #      no per-tick "already active" log spam.
+                #   2. When both are due, prefer health — it's rarer and frees the
+                #      capacity discovery needs; discovery runs next interval.
+                if (discovery_due or health_due) and not is_scan_active():
+                    if health_due:
+                        last_health = now
+                        if discovery_due:
+                            # Consume discovery's turn too, so it doesn't spin
+                            # retrying against the lock the health scan now holds.
+                            last_discovery = now
+                        print(f"Triggering Health Check from scheduler. Interval configured: {health_interval}s")
+                        threading.Thread(
+                            target=AutomationService.run_scan,
+                            args=('health_check',),
+                            daemon=True
+                        ).start()
+                        # Piggyback device-slot retention on the health tick.
+                        try:
+                            from services.user_service import cleanup_stale_devices
+                            cleanup_stale_devices()
+                        except Exception as e_dev:
+                            print(f"Error cleaning up stale devices: {e_dev}")
+
+                        # Piggyback subscription-log retention on the health tick too.
+                        try:
+                            from services.statistics_service import prune_old_subscription_logs
+                            deleted = prune_old_subscription_logs()
+                            if deleted:
+                                print(f"Pruned {deleted} old subscription log rows.")
+                        except Exception as e_log:
+                            print(f"Error pruning old subscription logs: {e_log}")
+                    elif discovery_due:
+                        last_discovery = now
+                        print(f"Triggering Auto Discovery from scheduler. Interval configured: {scan_interval}s")
+                        threading.Thread(
+                            target=AutomationService.run_scan,
+                            args=('discovery',),
+                            daemon=True
+                        ).start()
 
                 # Check if it's time for Scheduled Backup
                 try:

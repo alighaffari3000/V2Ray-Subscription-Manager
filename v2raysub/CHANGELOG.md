@@ -12,6 +12,30 @@
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-21
+
+### Added
+- **جایگزینی پیوسته‌ی کانفیگ‌ها هنگام پر بودن ظرفیت.** پیش از این، وقتی تعداد کانفیگ‌های
+  active به `max_active_configs` می‌رسید، discovery کاملاً skip می‌شد و استخر تا مرگِ
+  کانفیگ‌ها هیچ‌وقت تازه نمی‌شد. اکنون اگر `discovery_replace_when_full` روشن باشد (پیش‌فرض)،
+  اسکن ادامه می‌یابد و بدترین کانفیگ‌های auto (پرتأخیرترین) با کاندیدهای جدیدِ به‌طور
+  معنادار سریع‌تر (حداقل ۵۰ms بهتر) جایگزین می‌شوند. کانفیگ‌های دستی (`mode='manual'`)
+  هرگز دست‌کاری نمی‌شوند و نرخ جابه‌جایی به `max_new_configs_per_scan` در هر اسکن محدود است.
+
+### Fixed
+- **گرسنگی همیشگی health check در scheduler.** چون `health_check_interval` مضرب
+  `scan_interval` بود، health و discovery همیشه هم‌زمان موعدشان می‌رسید و discovery (که اول
+  استارت می‌شد) هر بار قفل مشترک اسکن را می‌گرفت؛ در نتیجه health هیچ‌وقت اجرا نمی‌شد،
+  کانفیگ‌های مرده prune نمی‌شدند و ظرفیت هیچ‌وقت خالی نمی‌شد (قفل‌شدن سیستم روی سقف).
+  اکنون وقتی هر دو موعدشان می‌رسد health اولویت دارد، و تا وقتی اسکنی در حال اجراست هیچ
+  تایمری «سوزانده» نمی‌شود.
+
+### Changed
+- **تسریع مرحله‌ی TCP pre-filter اسکن engine.** کف concurrency غربال از ۶۴ به ۲۵۶ رسید و
+  timeout اتصالِ این مرحله به ۳ ثانیه (به‌جای ۵ ثانیه‌ی probe اصلی) محدود شد؛ چون
+  endpointهای مرده هرکدام تا سررسید timeout بلاک می‌شوند، این دو تغییر زمانِ غربال روی
+  صف‌های چندهزارتایی را چند برابر کاهش می‌دهد.
+
 ## [1.1.1] - 2026-07-21
 
 ### Fixed
@@ -42,7 +66,8 @@
 - نمایش نسخه در پایان نصب/آپدیت: «Version X.Y.Z installed/updated successfully».
 - مدیریت کاربران (user-management) و محدودیت تعداد دستگاه (device-limit).
 
-[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/releases/tag/v1.0.0

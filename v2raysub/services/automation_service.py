@@ -292,13 +292,88 @@ class ConfigImporter:
                 
                 existing_identities.add(identity)
                 added_count += 1
-                
+
+            # ── Replacement pass ──
+            # Once the pool is full, plain addition can't bring anything new in, so
+            # a pool that filled up would stay frozen forever. Instead, swap the
+            # worst auto-discovered configs for meaningfully faster new candidates.
+            # Rules that keep this safe:
+            #   * Only mode='auto' rows are ever touched — never a manual config.
+            #   * Bounded by the leftover per-scan budget (max_new - added), so the
+            #     pool can't churn wildly in one scan.
+            #   * A new config must beat the worst active by MIN_IMPROVEMENT_MS,
+            #     avoiding pointless swaps for a millisecond of latency.
+            #   * The displaced config is retired via the same cleanup_policy the
+            #     health check uses (disable by default, delete if configured).
+            replaced_count = 0
+            replace_when_full = get_setting('discovery_replace_when_full', '1') == '1'
+            replace_budget = max_new - added_count
+            if replace_when_full and replace_budget > 0:
+                MIN_IMPROVEMENT_MS = 50
+                cleanup_policy = get_setting('cleanup_policy', 'disable').lower()
+                worst_actives = db.execute(
+                    '''SELECT id, COALESCE(latency, 999999) AS lat
+                       FROM configs
+                       WHERE status="active" AND is_enabled=1 AND mode='auto'
+                       ORDER BY lat DESC'''
+                ).fetchall()
+                worst_idx = 0
+                # healthy_configs is already sorted by latency ascending, so the
+                # best remaining candidate is paired with the current worst active.
+                for item in healthy_configs:
+                    if replace_budget <= 0 or worst_idx >= len(worst_actives):
+                        break
+                    uri = item['uri']
+                    protocol = detect_config_type(uri)
+                    if not protocol:
+                        continue
+                    identity = get_config_identity(uri, protocol)
+                    if identity in existing_identities:
+                        continue  # already active or added earlier this scan
+                    cand_lat = int(item['latency_ms'])
+                    worst = worst_actives[worst_idx]
+                    if cand_lat + MIN_IMPROVEMENT_MS >= worst['lat']:
+                        # Best remaining candidate isn't meaningfully better than
+                        # our worst active — nothing further is worth swapping.
+                        break
+
+                    # Retire the displaced worst config.
+                    if cleanup_policy == 'delete':
+                        db.execute("UPDATE configs SET status='deleted' WHERE id = ?", (worst['id'],))
+                    else:
+                        db.execute("UPDATE configs SET is_enabled=0 WHERE id = ?", (worst['id'],))
+
+                    # Insert the faster replacement.
+                    max_sort_row = db.execute('SELECT MAX(sort_order) as max_val FROM configs WHERE status="active"').fetchone()
+                    max_sort = max_sort_row['max_val'] if max_sort_row and max_sort_row['max_val'] is not None else 0
+                    next_order = max_sort + 1
+                    source_name = item.get('source', 'auto')
+                    cursor = db.execute(
+                        '''INSERT INTO configs (
+                            config_text, config_type, sort_order, is_enabled, status,
+                            source, mode, last_check, last_success, latency, consecutive_failures, health_status
+                        ) VALUES (?, ?, ?, 1, 'active', ?, 'auto', ?, ?, ?, 0, 'healthy')''',
+                        (uri, protocol, next_order, source_name, scan_time_str, scan_time_str, cand_lat)
+                    )
+                    new_id = cursor.lastrowid
+                    if scan_id is not None:
+                        db.execute(
+                            '''INSERT INTO config_health_history (
+                                config_id, scan_id, reachable, latency, validation, error_message
+                            ) VALUES (?, ?, 1, ?, 'Success', NULL)''',
+                            (new_id, scan_id, cand_lat)
+                        )
+                    existing_identities.add(identity)
+                    worst_idx += 1
+                    replace_budget -= 1
+                    replaced_count += 1
+
             db.commit()
-            return added_count, duplicate_count
+            return added_count, duplicate_count, replaced_count
         except Exception as e:
             print(f"Error in ConfigImporter: {e}")
             db.rollback()
-            return 0, 0
+            return 0, 0, 0
         finally:
             db.close()
 
@@ -588,13 +663,19 @@ class AutomationService:
             if mode == 'discovery':
                 # Check current active count
                 max_active = int(get_setting('max_active_configs', '100'))
+                replace_when_full = get_setting('discovery_replace_when_full', '1') == '1'
                 db = get_db()
                 active_count = db.execute(
                     'SELECT COUNT(*) as count FROM configs WHERE status="active" AND is_enabled=1'
                 ).fetchone()['count']
                 db.close()
-                
-                if active_count >= max_active:
+
+                # At capacity we normally skip. But when replacement is enabled we
+                # keep scanning so import_discovered_configs can swap the worst
+                # auto-configs for meaningfully faster new ones — otherwise a pool
+                # that filled up once would never refresh. Only a full pool AND
+                # replacement disabled short-circuits the scan.
+                if active_count >= max_active and not replace_when_full:
                     msg = f"Discovery skipped: active configs capacity full ({active_count}/{max_active})"
                     print(f"[{job_id}] {msg}")
                     # Update status
@@ -641,7 +722,10 @@ class AutomationService:
                 if early_stop:
                     max_new = int(get_setting('max_new_configs_per_scan', '10'))
                     available_capacity = max(0, max_active - active_count)
-                    target_count = min(max_new, available_capacity)
+                    # At capacity with replacement on there's no free slot, but we
+                    # still want a batch of candidates to compare against the worst
+                    # existing configs — so target the per-scan cap in that case.
+                    target_count = min(max_new, available_capacity) if available_capacity > 0 else max_new
                     if target_count > 0:
                         input_data["scan_all"] = False
                         input_data["target_count"] = target_count
@@ -698,7 +782,7 @@ class AutomationService:
                 worker_version = parsed_output.get("worker_version")
                 results = parsed_output.get("results", [])
                 
-                added_count, duplicate_count = ConfigImporter.import_discovered_configs(results, started_at_str, scan_id=scan_id)
+                added_count, duplicate_count, replaced_count = ConfigImporter.import_discovered_configs(results, started_at_str, scan_id=scan_id)
                 
                 # Deduce per-source operational success
                 successful_sources = set()
@@ -749,8 +833,8 @@ class AutomationService:
                     status=status,
                     worker_version=worker_version
                 )
-                print(f"[{job_id}] Discovery completed successfully. Added: {added_count}")
-                return True, f"Discovery completed. Discovered: {len(results)}, Added: {added_count}."
+                print(f"[{job_id}] Discovery completed successfully. Added: {added_count}, Replaced: {replaced_count}")
+                return True, f"Discovery completed. Discovered: {len(results)}, Added: {added_count}, Replaced: {replaced_count}."
                 
             elif mode == 'health_check':
                 # Fetch configs

@@ -43,10 +43,18 @@ pub const DEFAULT_PROBE_PROCESS_CONCURRENCY: Option<usize> = None;
 pub const DEFAULT_TCP_PREFILTER: bool = true;
 /// TCP-connect is far lighter than a sing-box process, so the pre-filter stage
 /// runs at a much higher fan-out than active probing. Derived from the active
-/// `concurrency` via this multiplier, then clamped to the range below.
+/// `concurrency` via this multiplier, then clamped to the range below. The floor
+/// is deliberately high: dead endpoints each block for the full connect timeout,
+/// so on a queue with thousands of dead hosts the sweep's wall-clock is
+/// dominated by `dead * timeout / concurrency` — a low fan-out makes it crawl.
 pub const TCP_PREFILTER_CONCURRENCY_MULTIPLIER: usize = 8;
-pub const MIN_TCP_PREFILTER_CONCURRENCY: usize = 64;
+pub const MIN_TCP_PREFILTER_CONCURRENCY: usize = 256;
 pub const MAX_TCP_PREFILTER_CONCURRENCY: usize = 512;
+/// Connect timeout for the pre-filter sweep, capped below the main
+/// `connect_timeout_ms`. A usable proxy completes its TCP handshake in well under
+/// this; anything slower would give poor throughput anyway, so treating it as
+/// dead here trades a rare false-drop for a much faster sweep.
+pub const TCP_PREFILTER_CONNECT_TIMEOUT_MS: u64 = 3_000;
 pub const DEFAULT_TEST_URL: &str = "https://www.gstatic.com/generate_204";
 pub const DEFAULT_ACCEPTED_STATUSES: &[u16] = &[204, 200];
 pub const DEFAULT_DOWNLOAD_BYTES_LIMIT: usize = 1_048_576;
