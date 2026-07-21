@@ -63,5 +63,12 @@ def subscription(sub_path):
     resp.headers['Profile-Title'] = 'base64:' + b64encode(profile_title.encode('utf-8')).decode('ascii')
     resp.headers['Profile-Update-Interval'] = get_setting('profile_update_interval_hours', '6')
     if expire_ts is not None:
-        resp.headers['Subscription-Userinfo'] = f'expire={expire_ts}'
+        # Hiddify (and other Marzban/Clash-lineage clients) only render the
+        # sub-info panel — including remaining days — when all four fields are
+        # present. An expire-only header is silently ignored. total=0 is the
+        # Marzban convention for "unlimited traffic", shown as ∞, so remaining
+        # days still displays without implying a quota.
+        resp.headers['Subscription-Userinfo'] = (
+            f'upload=0; download=0; total=0; expire={expire_ts}'
+        )
     return resp
