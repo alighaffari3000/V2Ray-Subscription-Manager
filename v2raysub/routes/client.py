@@ -9,12 +9,14 @@ from database import get_setting
 from extensions import limiter
 from services.subscription_service import (
     generate_subscription_content, generate_dummy_content, DEVICE_LIMIT_MESSAGE,
+    BOT_PLACEHOLDER_MESSAGE,
 )
 from services.user_service import resolve_user_request, get_subscription_headers
 from services.statistics_service import log_subscription_access
 from utils.constants import (
     STATUS_SUCCESS, STATUS_NOT_FOUND,
     STATUS_EXPIRED, STATUS_USER_DISABLED, STATUS_USER_PAUSED, STATUS_DEVICE_LIMIT,
+    STATUS_BOT_BLOCKED,
 )
 
 client_bp = Blueprint('client', __name__)
@@ -56,6 +58,9 @@ def subscription(sub_path):
     if outcome == 'device_limit':
         log_subscription_access(ip, ua, STATUS_DEVICE_LIMIT, sub_path)
         return _text(generate_dummy_content(DEVICE_LIMIT_MESSAGE))
+    if outcome == 'bot':
+        log_subscription_access(ip, ua, STATUS_BOT_BLOCKED, sub_path)
+        return _text(BOT_PLACEHOLDER_MESSAGE)
     # outcome == 'serve'
     log_subscription_access(ip, ua, STATUS_SUCCESS, sub_path)
     resp = _text(generate_subscription_content(_user))

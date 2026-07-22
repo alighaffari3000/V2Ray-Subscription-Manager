@@ -730,6 +730,9 @@ class TestDeviceLimit(IntegrationTestBase):
     def _is_dummy(self, resp):
         return 'expired-user' in self._decode(resp)
 
+    def _is_bot_placeholder(self, resp):
+        return resp.data.decode('utf-8') == 'Content not available'
+
     def _get_user(self, user_id):
         users = json.loads(self.client.get('/adminpanel/api/users').data)
         return next((u for u in users if u['id'] == user_id), None)
@@ -786,19 +789,32 @@ class TestDeviceLimit(IntegrationTestBase):
         # ...but the original device keeps getting the real list
         self.assertTrue(self._is_real(self._fetch('devknown0001', ip='1.1.1.1', ua='v2rayNG/1.0')))
 
-    def test_preview_bot_does_not_consume_a_device_slot(self):
+    def test_preview_bot_gets_placeholder_not_real_config(self):
         self._login()
         self._seed_config()
         uid = self._add_user('A', 30, path='devbot000001', max_devices=1)['user']['id']
-        # Telegram's link-preview bot fetches first — served, but must NOT take
-        # the single device slot (mirrors sharing the link in a Telegram chat).
-        self.assertTrue(self._is_real(self._fetch(
+        # Telegram's link-preview bot fetches first — gets a neutral placeholder,
+        # never the real config, and must NOT take the single device slot
+        # (mirrors sharing the link in a Telegram chat).
+        self.assertTrue(self._is_bot_placeholder(self._fetch(
             'devbot000001', ip='149.154.161.251', ua='TelegramBot (like TwitterBot)')))
         # The user's real client on a different network still gets the real list.
         self.assertTrue(self._is_real(self._fetch(
             'devbot000001', ip='65.108.154.95', ua='v2rayNG/2.2.5')))
         # Exactly one device (the real client) is registered.
         self.assertEqual(self._get_user(uid)['active_device_count'], 1)
+
+    def test_spoofed_bot_ua_cannot_bypass_device_cap(self):
+        self._login()
+        self._seed_config()
+        self._add_user('A', 30, path='devbot000002', max_devices=1)
+        # First real device fills the single slot.
+        self.assertTrue(self._is_real(self._fetch(
+            'devbot000002', ip='1.1.1.1', ua='v2rayNG/2.2.5')))
+        # A second, different network claiming a bot-like UA must NOT receive
+        # the real config — that would bypass the cap entirely.
+        resp = self._fetch('devbot000002', ip='2.2.2.2', ua='TotallyLegitBot/1.0')
+        self.assertTrue(self._is_bot_placeholder(resp))
 
     def test_rolling_window_frees_slot(self):
         self._login()

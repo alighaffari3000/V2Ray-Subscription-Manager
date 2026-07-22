@@ -15,6 +15,10 @@ from services.user_service import get_dummy_status_texts
 EXPIRED_MESSAGE = '⚠️ اشتراک شما به پایان رسیده است ⚠️'
 # Shown when a user hits their device cap and a new device is turned away.
 DEVICE_LIMIT_MESSAGE = '⚠️ سقف تعداد دستگاه پر شده است ⚠️'
+# Plain-text placeholder for link-preview crawlers/bots — deliberately generic
+# (no config, no mention of VPN/subscription) since messengers may surface this
+# exact text as the shared link's preview snippet to a real person.
+BOT_PLACEHOLDER_MESSAGE = 'Content not available'
 
 
 def _encode(content):

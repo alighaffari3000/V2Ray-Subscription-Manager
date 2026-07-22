@@ -1583,6 +1583,8 @@ hysteria2://..." required></textarea>
                             statusBadge = '<span class="badge" style="padding: 2px 8px; font-size: 11px; background: #7f8c8d; color: #fff;">کاربر غیرفعال</span>';
                         } else if (log.status === 'DEVICE_LIMIT') {
                             statusBadge = '<span class="badge" style="padding: 2px 8px; font-size: 11px; background: #f39c12; color: #fff;">سقف دستگاه</span>';
+                        } else if (log.status === 'BOT_BLOCKED') {
+                            statusBadge = '<span class="badge" style="padding: 2px 8px; font-size: 11px; background: #7f8c8d; color: #fff;">بات/پیش‌نمایش</span>';
                         } else {
                             statusBadge = `<span class="badge badge-danger" style="padding: 2px 8px; font-size: 11px; background: #e74c3c;">خطا (${log.status})</span>`;
                         }

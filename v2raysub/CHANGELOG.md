@@ -12,6 +12,19 @@
 
 ## [Unreleased]
 
+## [1.6.4] - 2026-07-22
+
+### Fixed
+- **دور زدن سقف تعداد دستگاه با جعل User-Agent شبیه بات.** درخواستی که UA آن حاوی
+  کلمات `bot`/`crawler`/`preview` و مانند آن باشد (برای معاف‌کردن کرالرهای
+  پیش‌نمایش تلگرام/واتساپ از شمارش دستگاه) تا امروز کانفیگ **واقعی** می‌گرفت،
+  یعنی هر کاربری می‌توانست با گذاشتن یک UA بات‌مانند از سقف `max_devices` عبور
+  کند. اکنون این دسته درخواست‌ها (`resolve_user_request` در
+  `services/user_service.py`) به‌جای کانفیگ واقعی یک متن خنثی و ساده
+  (`Content not available`, بدون هیچ اشاره‌ای به VPN/اشتراک تا در پیش‌نمایش
+  لینک لو نرود) می‌گیرند و همچنان مثل قبل جزو شمارش دستگاه محسوب نمی‌شوند. لاگ
+  دسترسی این حالت را با وضعیت جدید `BOT_BLOCKED` ثبت می‌کند.
+
 ## [1.6.3] - 2026-07-21
 
 ### Fixed
@@ -140,7 +153,8 @@
 - نمایش نسخه در پایان نصب/آپدیت: «Version X.Y.Z installed/updated successfully».
 - مدیریت کاربران (user-management) و محدودیت تعداد دستگاه (device-limit).
 
-[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.6.3...HEAD
+[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.6.4...HEAD
+[1.6.4]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.6.3...v1.6.4
 [1.6.3]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.6.2...v1.6.3
 [1.6.2]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.6.1...v1.6.2
 [1.6.1]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.6.0...v1.6.1

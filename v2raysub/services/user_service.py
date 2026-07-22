@@ -484,16 +484,14 @@ def _allow_device(db, user, ip, user_agent):
     device is always refreshed and allowed; a brand-new device is allowed only
     while free slots remain, otherwise rejected (caller serves the dummy config).
 
-    Link-preview crawlers/bots are served but never counted as a device.
+    Callers must route preview crawlers/bots (``is_bot_user_agent``) to a
+    separate neutral response before reaching this function — they're never
+    registered as a device, but they must not receive the real config either,
+    since a spoofed bot-like User-Agent would otherwise bypass the cap entirely.
 
     Returns True to serve the real list, False to serve the device-limit dummy.
     Fails open (True) on unlimited caps, missing IPs, or any unexpected error.
     """
-    # Preview crawlers (e.g. Telegram fetching the link when it's shared) are not
-    # real devices — serve them without registering or consuming a device slot.
-    if is_bot_user_agent(user_agent):
-        return True
-
     max_dev = int(user['max_devices'] or 0)
     if max_dev <= 0:
         return True  # 0 = unlimited
@@ -560,6 +558,8 @@ def resolve_user_request(sub_path, ip=None, user_agent=None):
         ('disabled', user)    -> respond 404
         ('paused', user)      -> serve the dummy "expired/paused" config
         ('expired', user)     -> serve the dummy config
+        ('device_limit', user) -> serve the device-limit dummy config
+        ('bot', user)         -> serve a neutral placeholder, no config
         ('serve', user)       -> serve the real global config list
 
     Side effects: atomic activation-on-first-use, and last_seen/last_ip/
@@ -604,6 +604,13 @@ def resolve_user_request(sub_path, ip=None, user_agent=None):
         expire = _parse(user['expire_at'])
         if expire is not None and expire < _utcnow():
             return ('expired', user)
+
+        # Link-preview crawlers (Telegram/WhatsApp/etc. fetching a shared link)
+        # are served a neutral placeholder — never the real config, and never
+        # counted as a device. Without this, spoofing a bot-like User-Agent
+        # would bypass the device cap entirely.
+        if is_bot_user_agent(user_agent):
+            return ('bot', user)
 
         # Device cap: register/refresh this device, block only a *new* device
         # once the rolling-window slots are full. Known devices are never blocked.
