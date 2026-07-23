@@ -345,21 +345,26 @@ def get_logs(page=1, per_page=50, search='', status_filter=''):
     params = []
 
     if search:
-        where_clauses.append('(ip_address LIKE ? OR user_agent LIKE ? OR request_path LIKE ?)')
+        where_clauses.append('(sl.ip_address LIKE ? OR sl.user_agent LIKE ? OR sl.request_path LIKE ? OR u.name LIKE ?)')
         search_term = f'%{search}%'
-        params.extend([search_term, search_term, search_term])
+        params.extend([search_term, search_term, search_term, search_term])
 
     if status_filter:
-        where_clauses.append('status = ?')
+        where_clauses.append('sl.status = ?')
         params.append(status_filter)
 
     where_sql = ' AND '.join(where_clauses) if where_clauses else '1=1'
 
-    total = db.execute(f'SELECT COUNT(*) as count FROM subscription_logs WHERE {where_sql}', params).fetchone()['count']
+    # LEFT JOIN users so each log row carries the owning user's name (via the
+    # per-user subscription path). Logs on non-user paths keep user_name = NULL.
+    base_from = 'subscription_logs sl LEFT JOIN users u ON u.path = sl.request_path'
+
+    total = db.execute(f'SELECT COUNT(*) as count FROM {base_from} WHERE {where_sql}', params).fetchone()['count']
     total_pages = max(1, (total + per_page - 1) // per_page)
 
     rows = db.execute(
-        f'SELECT * FROM subscription_logs WHERE {where_sql} ORDER BY accessed_at DESC LIMIT ? OFFSET ?',
+        f'SELECT sl.*, u.name AS user_name FROM {base_from} WHERE {where_sql} '
+        'ORDER BY sl.accessed_at DESC LIMIT ? OFFSET ?',
         params + [per_page, offset]
     ).fetchall()
     db.close()

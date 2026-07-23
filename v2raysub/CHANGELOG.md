@@ -12,6 +12,16 @@
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-07-24
+
+### Added
+- **ستون «نام کاربر» در تب لاگ‌ها (تاریخچه بازدید لینک سابسکریپشن).** حالا هر ردیف
+  لاگ نام کاربرِ صاحب مسیر را هم نشان می‌دهد. `get_logs` در
+  `services/statistics_service.py` جدول `subscription_logs` را با `LEFT JOIN` روی
+  `users.path = subscription_logs.request_path` به جدول کاربران وصل می‌کند و
+  `user_name` را برمی‌گرداند؛ لاگ‌های مربوط به مسیرهای بدون کاربر (مثل مسیر عمومی)
+  با «—» نمایش داده می‌شوند. جستجوی تب لاگ‌ها هم روی نام کاربر کار می‌کند.
+
 ## [1.6.4] - 2026-07-22
 
 ### Fixed
@@ -153,7 +163,8 @@
 - نمایش نسخه در پایان نصب/آپدیت: «Version X.Y.Z installed/updated successfully».
 - مدیریت کاربران (user-management) و محدودیت تعداد دستگاه (device-limit).
 
-[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.6.4...HEAD
+[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.6.4...v1.7.0
 [1.6.4]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.6.3...v1.6.4
 [1.6.3]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.6.2...v1.6.3
 [1.6.2]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.6.1...v1.6.2

@@ -1302,6 +1302,7 @@ hysteria2://..." required></textarea>
                     <thead>
                         <tr>
                             <th>زمان</th>
+                            <th>نام کاربر</th>
                             <th>IP</th>
                             <th>مسیر درخواستی (Path)</th>
                             <th>User Agent</th>
@@ -1310,7 +1311,7 @@ hysteria2://..." required></textarea>
                     </thead>
                     <tbody>
                         <tr>
-                            <td colspan="5" style="text-align: center;">درحال بارگذاری...</td>
+                            <td colspan="6" style="text-align: center;">درحال بارگذاری...</td>
                         </tr>
                     </tbody>
                 </table>
@@ -1560,7 +1561,7 @@ hysteria2://..." required></textarea>
                 .then(data => {
                     tbody.innerHTML = '';
                     if (data.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center;">هیچ بازدیدی ثبت نشده است</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">هیچ بازدیدی ثبت نشده است</td></tr>';
                         return;
                     }
                     data.forEach(log => {
@@ -1593,8 +1594,12 @@ hysteria2://..." required></textarea>
                         // (User-Agent header / requested path), so escape them before
                         // injecting via innerHTML to prevent stored XSS in the admin panel.
                         const ua = escapeHtml(log.user_agent);
+                        const userName = log.user_name
+                            ? escapeHtml(log.user_name)
+                            : '<span style="color: #95a5a6;">—</span>';
                         tr.innerHTML = `
                             <td>${new Date(log.accessed_at).toLocaleString('fa-IR')}</td>
+                            <td style="font-weight: bold;">${userName}</td>
                             <td style="direction: ltr;">${escapeHtml(log.ip_address)}</td>
                             <td style="direction: ltr; font-size: 12px; font-weight: bold;">/sub/${escapeHtml(log.request_path || '')}</td>
                             <td style="direction: ltr; font-size: 11px; max-width: 250px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;" title="${ua}">${ua}</td>
@@ -1604,7 +1609,7 @@ hysteria2://..." required></textarea>
                     });
                 })
                 .catch(err => {
-                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: red;">خطا در دریافت لاگ‌ها</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: red;">خطا در دریافت لاگ‌ها</td></tr>';
                 });
         }
 
