@@ -12,6 +12,22 @@
 
 ## [Unreleased]
 
+## [1.10.1] - 2026-07-25
+
+### Fixed
+- **پیام مبهم «N خطا» در ستون «وضعیت اسکن» منابع خودکار.** پیش از این هر شکستِ منبع
+  با یک شمارنده‌ی خشک («۳ خطا ❌») و متنی اغلب انگلیسی/فنی در tooltip نشان داده
+  می‌شد و سه حالتِ کاملاً متفاوت را یکی می‌کرد. حالا `run_scan` در
+  `services/automation_service.py` برای هر منبع تعداد کانفیگ یافته/در‌دسترس را
+  می‌شمارد و از `describe_source_failure` یک دلیل فارسیِ مشخص می‌سازد:
+  «منبع پاسخی نداد یا هیچ کانفیگ معتبری نداشت (لینک را بررسی کنید)» برای منبعِ
+  واقعاً مرده، در برابر «N کانفیگ تست شد، هیچ‌کدام در دسترس نبود» برای منبعی که
+  سالم است ولی کانفیگ‌هایش در آن لحظه جواب ندادند — تنها حالت اول دلیل خوبی برای
+  حذف منبع است. کرشِ کاملِ موتور هم دیگر بلوبِ خام `stderr` را در تک‌تک ردیف‌ها
+  نمی‌ریزد؛ یک پیام کوتاه ذخیره می‌شود و جزئیات کامل روی ردیف تاریخچه‌ی اسکن
+  می‌ماند. جدول منابع حالا همین دلیل را به‌جای عدد، سرراست نشان می‌دهد و تعداد
+  دفعات پیاپیِ ناموفق را در یک خط کم‌رنگِ فرعی می‌آورد.
+
 ## [1.10.0] - 2026-07-25
 
 ### Added
@@ -220,7 +236,8 @@
 - نمایش نسخه در پایان نصب/آپدیت: «Version X.Y.Z installed/updated successfully».
 - مدیریت کاربران (user-management) و محدودیت تعداد دستگاه (device-limit).
 
-[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.10.0...HEAD
+[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.10.1...HEAD
+[1.10.1]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.10.0...v1.10.1
 [1.10.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.7.0...v1.8.0

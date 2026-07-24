@@ -745,6 +745,29 @@ class MetricsRecorder:
             db.close()
 
     @staticmethod
+    def describe_source_failure(found, tested, sample_err):
+        """Human-readable Persian reason a source yielded no usable config.
+
+        The panel used to store a generic English string ("No config from this
+        source was successfully validated") or a raw probe-method name
+        ("active_http") — indistinguishable cases that need very different
+        actions. Split them by what the engine actually returned:
+          - found == 0  → the URL didn't fetch or held no parseable configs;
+                          this is the source worth deleting.
+          - found > 0   → the source is alive and has configs, they just all
+                          failed the reachability probe this run; usually a
+                          transient dead-server issue, not a reason to delete.
+        """
+        if found <= 0:
+            return "منبع پاسخی نداد یا هیچ کانفیگ معتبری داخلش نبود (لینک منبع را بررسی کنید)"
+        msg = f"{tested} کانفیگ تست شد، هیچ‌کدام در دسترس نبود"
+        if sample_err:
+            # `sample_err` is often a probe-method tag, not a sentence — label it
+            # as a sample so it doesn't read like the whole story.
+            msg += f" — نمونه: {sample_err}"
+        return msg
+
+    @staticmethod
     def update_source_metadata(source_name, scan_time_str, success, error_msg=None):
         db = get_db()
         try:
@@ -1163,8 +1186,15 @@ class AutomationService:
                         status=status,
                         error_msg=err_desc
                     )
+                    # The engine crashed as a whole — this isn't any one source's
+                    # fault, so don't dump the raw multi-line stderr into every
+                    # row (that blob was the old "خطا" that read as noise). Store a
+                    # short, shared reason; the full stderr lives on the scan_history
+                    # row for anyone who needs it.
+                    source_err = ("اسکن لغو شد" if is_cancel_requested()
+                                  else "اسکن کامل شکست خورد (خطای موتور اسکن؛ جزئیات در تاریخچه‌ی اسکن)")
                     for s in sources_list:
-                        MetricsRecorder.update_source_metadata(s['name'], started_at_str, False, stderr)
+                        MetricsRecorder.update_source_metadata(s['name'], started_at_str, False, source_err)
                     return False, f"Worker process failed: {stderr}"
 
                 log_worker_stderr(job_id, stderr)
@@ -1193,32 +1223,41 @@ class AutomationService:
 
                 added_count, duplicate_count, replaced_count = ConfigImporter.import_discovered_configs(results, started_at_str, scan_id=scan_id)
                 
-                # Deduce per-source operational success
+                # Deduce per-source operational success. Track how many configs
+                # each source yielded and how many were reachable, so the panel
+                # can tell "dead/empty source" apart from "alive source whose
+                # configs all failed this run" — see describe_source_failure.
                 successful_sources = set()
-                failed_sources = {}
                 working_configs = 0
                 failed_probes = 0
+                per_source = {}  # name -> {'found', 'reachable', 'sample_err'}
                 for r in results:
                     src = r.get('source')
                     if not src:
                         continue
+                    slot = per_source.setdefault(src, {'found': 0, 'reachable': 0, 'sample_err': None})
+                    slot['found'] += 1
                     # `reachable` (+ a real latency) is the engine's pass flag; the
                     # `validation` string only names the method ("active_http" /
                     # "tcp_connect"), never a literal "Success" — see import_discovered_configs.
                     if r.get('reachable') and r.get('latency_ms') is not None:
                         successful_sources.add(src)
                         working_configs += 1
+                        slot['reachable'] += 1
                     else:
                         failed_probes += 1
-                        if src not in failed_sources:
-                            failed_sources[src] = r.get('error') or r.get('validation') or "Failed to test"
-                            
+                        if not slot['sample_err']:
+                            slot['sample_err'] = r.get('error') or r.get('validation')
+
                 for s in sources_list:
                     name = s['name']
                     if name in successful_sources:
                         MetricsRecorder.update_source_metadata(name, started_at_str, True)
                     else:
-                        err = failed_sources.get(name, "No config from this source was successfully validated")
+                        tally = per_source.get(name, {'found': 0, 'reachable': 0, 'sample_err': None})
+                        err = MetricsRecorder.describe_source_failure(
+                            tally['found'], tally['found'], tally['sample_err']
+                        )
                         MetricsRecorder.update_source_metadata(name, started_at_str, False, err)
                         
                 stats = {
