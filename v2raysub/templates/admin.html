@@ -1150,7 +1150,7 @@
                                         </button>
                                     </td>
                                     <td style="text-align: center;">
-                                        <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px;" onclick="openSourceEditModal({{ src.id }}, {{ src.name | tojson }}, {{ src.url | tojson }}, {{ src.priority }})">✏️</button>
+                                        <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px;" data-source-id="{{ src.id }}" data-source-name="{{ src.name }}" data-source-url="{{ src.url }}" data-source-priority="{{ src.priority }}" onclick="openSourceEditModal(this)">✏️</button>
                                         <button class="btn btn-danger" style="padding: 4px 8px; font-size: 11px;" onclick="deleteSource({{ src.id }})">🗑️</button>
                                     </td>
                                 </tr>
@@ -2745,11 +2745,11 @@ hysteria2://..." required></textarea>
             });
         }
 
-        function openSourceEditModal(id, name, url, priority) {
-            document.getElementById('source-edit-id').value = id;
-            document.getElementById('source-edit-name').value = name;
-            document.getElementById('source-edit-url').value = url;
-            document.getElementById('source-edit-priority').value = priority;
+        function openSourceEditModal(btn) {
+            document.getElementById('source-edit-id').value = btn.dataset.sourceId;
+            document.getElementById('source-edit-name').value = btn.dataset.sourceName;
+            document.getElementById('source-edit-url').value = btn.dataset.sourceUrl;
+            document.getElementById('source-edit-priority').value = btn.dataset.sourcePriority;
             document.getElementById('source-modal').classList.add('show');
         }
 

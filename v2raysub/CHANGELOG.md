@@ -12,6 +12,17 @@
 
 ## [Unreleased]
 
+## [1.11.1] - 2026-07-25
+
+### Fixed
+- **دکمه‌ی ویرایش منبع خودکار (✏️) هیچ واکنشی نداشت.** مقدار نام/آدرس منبع با
+  فیلتر `tojson` مستقیم داخل صفت `onclick="..."` جای‌گذاری می‌شد؛ چون خروجی
+  `tojson` از دابل‌کوت استفاده می‌کند، همان کوتیشن‌ها صفت HTML را زودتر از
+  موعد می‌بستند و باقی فراخوانی تابع (شامل خودِ نام مودال) قطع می‌شد — در نتیجه
+  کلیک روی دکمه عملاً کاری انجام نمی‌داد. حالا داده‌ها با صفت‌های `data-*`
+  (که Jinja به‌درستی escape می‌کند) روی خود دکمه قرار می‌گیرند و
+  `openSourceEditModal(this)` آن‌ها را در کلیک می‌خواند.
+
 ## [1.11.0] - 2026-07-25
 
 ### Added
@@ -250,7 +261,8 @@
 - نمایش نسخه در پایان نصب/آپدیت: «Version X.Y.Z installed/updated successfully».
 - مدیریت کاربران (user-management) و محدودیت تعداد دستگاه (device-limit).
 
-[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.11.0...HEAD
+[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.11.1...HEAD
+[1.11.1]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.11.0...v1.11.1
 [1.11.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.10.1...v1.11.0
 [1.10.1]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.10.0...v1.10.1
 [1.10.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.9.0...v1.10.0
