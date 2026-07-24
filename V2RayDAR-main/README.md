@@ -161,7 +161,7 @@ Windows users replace `v2raydar` with `v2raydar.exe`. On macOS open the bundled 
 | `probe.mode` | `active` | `active` uses `sing-box`; `tcp` is diagnostic only. |
 | `probe.sing_box_path` | `null` | Optional path to `sing-box`. Leave `null` for desktop `_with_singbox` builds or Termux's package path. |
 | `probe.connect_timeout_ms` | `5000` | TCP connect timeout for diagnostic probing. |
-| `probe.active_timeout_ms` | `30000` | HTTP test timeout in active mode. |
+| `probe.active_timeout_ms` | `8000` | HTTP test timeout in active mode. |
 | `probe.startup_timeout_ms` | `5000` | Wait time for the temporary proxy to come up. |
 | `probe.concurrency` | `16` | Base active-probing concurrency. |
 | `probe.batch_size` | `20` | Initial active-probing batch size. |

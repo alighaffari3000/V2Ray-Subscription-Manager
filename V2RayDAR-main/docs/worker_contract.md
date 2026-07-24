@@ -105,6 +105,7 @@ Runtime performance tuning is managed exclusively via Command Line Interface (CL
 * `--fetch-concurrency <usize>`: Limits the count of concurrent subscription feeds downloads (default: `4`).
 * `--probe-concurrency <usize>`: Limits the count of concurrent active ping probes (default: `10`).
 * `--probe-process-concurrency <usize>`: Limits the count of parallel active probe processes (default: `2`).
+* `--probe-timeout-ms <u64>`: Per-candidate active HTTP probe timeout in milliseconds (default: `8000`). Worker mode ignores `configs.yaml`, so this flag is the only way to tune it. Lower values shorten the tail of a scan, since every unreachable candidate holds its slot for the full timeout; raise it only if genuinely slow-but-usable endpoints are being dropped.
 
 ---
 

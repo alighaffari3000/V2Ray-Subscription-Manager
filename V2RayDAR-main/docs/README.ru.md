@@ -159,7 +159,7 @@ Windows-пользователи заменяют `v2raydar` на `v2raydar.exe`
 | `probe.mode` | `active` | `active` использует `sing-box`; `tcp` только для диагностики. |
 | `probe.sing_box_path` | `null` | Необязательный путь к `sing-box`. Для десктопных сборок `_with_singbox` или пакета Termux оставьте `null`. |
 | `probe.connect_timeout_ms` | `5000` | Таймаут TCP-подключения в диагностическом режиме. |
-| `probe.active_timeout_ms` | `30000` | Таймаут HTTP-теста в активном режиме. |
+| `probe.active_timeout_ms` | `8000` | Таймаут HTTP-теста в активном режиме. |
 | `probe.startup_timeout_ms` | `5000` | Время ожидания запуска временного прокси. |
 | `probe.concurrency` | `16` | Базовая并发 активной проверки. |
 | `probe.batch_size` | `20` | Начальный размер партии активной проверки. |

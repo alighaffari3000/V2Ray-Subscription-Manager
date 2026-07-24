@@ -159,7 +159,7 @@ Windows 用户将 `v2raydar` 替换为 `v2raydar.exe`。macOS 上首次打开捆
 | `probe.mode` | `active` | `active` 使用 `sing-box`；`tcp` 仅用于诊断。 |
 | `probe.sing_box_path` | `null` | 可选的 `sing-box` 路径。桌面 `_with_singbox` 构建或 Termux 包路径可设为 `null`。 |
 | `probe.connect_timeout_ms` | `5000` | 诊断探测的 TCP 连接超时。 |
-| `probe.active_timeout_ms` | `30000` | 活跃模式下的 HTTP 测试超时。 |
+| `probe.active_timeout_ms` | `8000` | 活跃模式下的 HTTP 测试超时。 |
 | `probe.startup_timeout_ms` | `5000` | 等待临时代理启动的时间。 |
 | `probe.concurrency` | `16` | 基础活跃探测并发数。 |
 | `probe.batch_size` | `20` | 初始活跃探测批次大小。 |

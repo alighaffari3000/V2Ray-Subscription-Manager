@@ -41,7 +41,8 @@ use crate::{
     config::{AppConfig, ProbeMode},
     constants::{
         APP_DATA_DIR_NAME, APP_NAME, CACHE_DIR_NAME, CONFIG_FILE_NAME, CONFIG_WATCH_INTERVAL,
-        DB_FILE_NAME, DEFAULT_LOG_FILTER_PLAIN, DEFAULT_LOG_FILTER_TUI, DEFAULT_LOG_FILTER_VERBOSE,
+        DB_FILE_NAME, DEFAULT_ACTIVE_TIMEOUT_MS, DEFAULT_LOG_FILTER_PLAIN, DEFAULT_LOG_FILTER_TUI,
+        DEFAULT_LOG_FILTER_VERBOSE,
         FIREWALL_STATE_FILE_NAME, LEGACY_APP_MARKER_FILE_NAME, LEGACY_CACHE_MARKER_FILE_NAME,
         LOCALHOST_IP, MAX_TUI_LOGS, sing_box_download_url,
     },
@@ -149,6 +150,15 @@ struct WorkerArgs {
 
     #[arg(long, default_value_t = 2, help = "Limit concurrent active probe processes")]
     probe_process_concurrency: usize,
+
+    // Worker mode never reads configs.yaml (see `default_for_first_run` below),
+    // so without this flag the panel had no way to tune the probe timeout.
+    #[arg(
+        long,
+        default_value_t = DEFAULT_ACTIVE_TIMEOUT_MS,
+        help = "Per-candidate active HTTP probe timeout in milliseconds"
+    )]
+    probe_timeout_ms: u64,
 }
 
 #[derive(Debug, clap::ValueEnum, Clone)]
@@ -207,7 +217,11 @@ async fn main() -> Result<()> {
         // process_concurrency is Option<usize> (None = unlimited); the CLI arg is a
         // plain usize with a default, so it always maps to Some.
         config.probe.process_concurrency = Some(worker_args.probe_process_concurrency);
-        
+        // Clamped rather than rejected: a bad value from the panel should slow a
+        // scan down, never abort it. `validate_config` only rejects 0, so the
+        // floor is all that matters here.
+        config.probe.active_timeout_ms = worker_args.probe_timeout_ms.max(1);
+
         if active_probe_needs_setup(&config, &paths).await {
             eprintln!("sing-box executable was not found. Please place sing-box/sing-box.exe beside the executable or in PATH.");
             std::process::exit(1);

@@ -159,7 +159,7 @@ Les utilisateurs Windows remplacent `v2raydar` par `v2raydar.exe`. Sous macOS, o
 | `probe.mode` | `active` | `active` utilise `sing-box` ; `tcp` est uniquement diagnostique. |
 | `probe.sing_box_path` | `null` | Chemin optionnel vers `sing-box`. Laissez `null` pour les builds `_with_singbox` ou le chemin du package Termux. |
 | `probe.connect_timeout_ms` | `5000` | Délai de connexion TCP en mode diagnostique. |
-| `probe.active_timeout_ms` | `30000` | Délai du test HTTP en mode actif. |
+| `probe.active_timeout_ms` | `8000` | Délai du test HTTP en mode actif. |
 | `probe.startup_timeout_ms` | `5000` | Temps d'attente du démarrage du proxy temporaire. |
 | `probe.concurrency` | `16` | Nombre de base de vérifications actives simultanées. |
 | `probe.batch_size` | `20` | Taille initiale du lot de vérification active. |

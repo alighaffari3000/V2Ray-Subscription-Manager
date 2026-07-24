@@ -69,3 +69,7 @@ DATABASE = os.path.join(BASE_DIR, 'database.db')
 SCHEDULER_LOCK_FILE = os.path.join(BASE_DIR, 'scheduler.lock')
 SCAN_LOCK_FILE = os.path.join(BASE_DIR, 'scan.lock')
 SCAN_CANCEL_FLAG = os.path.join(BASE_DIR, 'scan_cancel.flag')
+# Result slot for the admin panel's on-demand config test. The browser polls for
+# the outcome and may be served by a different gunicorn worker than the one that
+# ran the probe, so the result cannot live in process memory.
+MANUAL_TEST_STATE_FILE = os.path.join(BASE_DIR, 'manual_test_state.json')

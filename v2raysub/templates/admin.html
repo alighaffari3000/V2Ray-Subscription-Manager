@@ -741,6 +741,14 @@
                         <input type="number" id="setting-scan-timeout" name="scan_timeout" value="{{ (scan_timeout|int / 60)|round|int }}" required min="1">
                     </div>
                     <div class="form-group" style="margin:0;">
+                        <label for="setting-probe-timeout">حداکثر زمان تست هر کانفیگ (میلی‌ثانیه)</label>
+                        <input type="number" id="setting-probe-timeout" name="probe_timeout_ms" value="{{ probe_timeout_ms }}" required min="1000" max="120000" step="500" title="هر کانفیگِ ناموفق تا پایان این زمان یک اسلات تست را اشغال می‌کند؛ مقدار کمتر، اسکن سریع‌تر">
+                    </div>
+                    <div class="form-group" style="margin:0;">
+                        <label for="setting-refine-multiplier">ضریب بازاندازه‌گیری دقیق</label>
+                        <input type="number" id="setting-refine-multiplier" name="refine_pass_multiplier" value="{{ refine_pass_multiplier }}" required min="1" max="10" title="چند برابرِ سهمیه‌ی ایمپورت، در پاس دقیق دوباره سنجیده شود">
+                    </div>
+                    <div class="form-group" style="margin:0;">
                         <label for="setting-device-window">پنجره‌ی فعال بودن دستگاه (روز)</label>
                         <input type="number" id="setting-device-window" name="device_window_days" value="{{ device_window_days }}" required min="1" title="دستگاهی که در این بازه دیده نشود، اسلاتش آزاد می‌شود">
                     </div>
@@ -756,6 +764,10 @@
                 <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 18px;">
                     <input type="checkbox" id="setting-early-stop" name="early_stop_enabled" value="1" {% if early_stop_enabled == '1' %}checked{% endif %} style="width: auto;">
                     توقف زودهنگام اسکن پس از یافتن کانفیگ‌های کافی
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 18px;">
+                    <input type="checkbox" id="setting-refine-pass" name="refine_pass_enabled" value="1" {% if refine_pass_enabled == '1' %}checked{% endif %} style="width: auto;">
+                    بازاندازه‌گیری دقیق سریع‌ترین کانفیگ‌ها پیش از ایمپورت (رتبه‌بندی دقیق‌تر، اسکن کمی طولانی‌تر)
                 </label>
                 <button type="submit" class="btn btn-primary">💾 ذخیره تنظیمات اتوماسیون</button>
             </form>
@@ -1183,6 +1195,7 @@ hysteria2://..." required></textarea>
                 <div class="bulk-actions" id="bulk-toolbar">
                     <span id="selected-count">0 انتخاب شده</span>
                     <button class="btn btn-info" onclick="copySelected()">کپی انتخاب‌شده‌ها</button>
+                    <button class="btn btn-primary" id="btn-test-selected" onclick="testSelected()">تست انتخاب‌شده‌ها</button>
                     <button class="btn btn-danger" onclick="deleteSelected()">حذف انتخاب‌شده‌ها</button>
                 </div>
             </div>
@@ -1242,6 +1255,9 @@ hysteria2://..." required></textarea>
                                     {% if config.last_check %}
                                     <span style="opacity: 0.7; font-size: 10px;" title="آخرین بررسی: {{ config.last_check }}">🔍 {{ config.last_check }}</span>
                                     {% endif %}
+
+                                    <!-- filled in by testConfigs() with the live probe result -->
+                                    <span class="test-result" id="test-result-{{ config.id }}"></span>
                                 </div>
                             </td>
                             <td style="font-size: 12px; opacity: 0.7;">{{ config.created_at }}</td>
@@ -1250,6 +1266,9 @@ hysteria2://..." required></textarea>
                                     <button class="btn btn-secondary" style="padding: 6px 10px;"
                                         onclick="copyConfig(this)"
                                         title="کپی کانفیگ">📋</button>
+                                    <button class="btn btn-primary" style="padding: 6px 10px;"
+                                        onclick="testConfigs([{{ config.id }}], this)"
+                                        title="تست کانفیگ و نمایش تأخیر واقعی">📶</button>
                                     <button class="btn {% if config.is_enabled %}btn-secondary{% else %}btn-success{% endif %}" style="padding: 6px 10px;"
                                         onclick="toggleConfigEnabled({{ config.id }}, {% if config.is_enabled %}false{% else %}true{% endif %})"
                                         title="{% if config.is_enabled %}غیرفعال کردن{% else %}فعال کردن{% endif %}">
@@ -1711,6 +1730,131 @@ hysteria2://..." required></textarea>
             }
         }
 
+        // ── On-demand config testing ─────────────────────────────────
+        // Probing runs in the background on the server (it can outlive the
+        // 30s request timeout), so we start a job and poll for its result.
+
+        let testInFlight = false;
+
+        function setTestResult(configId, html) {
+            const slot = document.getElementById(`test-result-${configId}`);
+            if (slot) slot.innerHTML = html;
+        }
+
+        // The engine's error text is untrusted (it can echo a remote server's
+        // response), so it is escaped before landing in the title attribute.
+        function testBadge(bg, text, title) {
+            return `<span class="badge" style="background: ${bg}; color: white; padding: 2px 6px;"
+                        title="${escapeHtml(title || '')}">${escapeHtml(text)}</span>`;
+        }
+
+        function testSelected() {
+            const ids = getSelectedIds().map(Number);
+            if (ids.length === 0) return;
+            testConfigs(ids, document.getElementById('btn-test-selected'));
+        }
+
+        function testConfigs(ids, btn) {
+            if (!ids || ids.length === 0) return;
+            if (testInFlight) {
+                showAlert('یک تست دیگر در حال اجراست؛ کمی صبر کنید.', 'error');
+                return;
+            }
+
+            testInFlight = true;
+            const originalHtml = btn ? btn.innerHTML : null;
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '⏳';
+            }
+            ids.forEach(id => setTestResult(id, testBadge('#f39c12', 'در حال تست…')));
+
+            const finish = () => {
+                testInFlight = false;
+                if (btn) {
+                    btn.disabled = false;
+                    if (originalHtml !== null) btn.innerHTML = originalHtml;
+                }
+            };
+
+            fetch('/adminpanel/config/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ids: ids })
+            })
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.success) {
+                        showAlert(data.message, 'error');
+                        ids.forEach(id => setTestResult(id, ''));
+                        finish();
+                        return;
+                    }
+                    pollTestResult(data.job_id, ids, finish);
+                })
+                .catch(() => {
+                    showAlert('ارسال درخواست تست ناموفق بود.', 'error');
+                    ids.forEach(id => setTestResult(id, ''));
+                    finish();
+                });
+        }
+
+        function pollTestResult(jobId, ids, finish) {
+            // Budget slightly above the server's own ceiling (20s per config,
+            // capped at 600s) so we never give up on a job still running.
+            const deadline = Date.now() + Math.min(660000, 30000 + ids.length * 21000);
+
+            const tick = () => {
+                if (Date.now() > deadline) {
+                    showAlert('تست بیش از حد انتظار طول کشید.', 'error');
+                    ids.forEach(id => setTestResult(id, testBadge('#95a5a6', 'بی‌پاسخ')));
+                    finish();
+                    return;
+                }
+
+                fetch(`/adminpanel/config/test/status?job_id=${encodeURIComponent(jobId)}`)
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.state === 'running') {
+                            setTimeout(tick, 2000);
+                            return;
+                        }
+
+                        if (data.state !== 'done') {
+                            showAlert(data.message, 'error');
+                            ids.forEach(id => setTestResult(id, ''));
+                            finish();
+                            return;
+                        }
+
+                        renderTestResults(data.results || []);
+                        showAlert(data.message, 'success');
+                        finish();
+                    })
+                    .catch(() => setTimeout(tick, 3000));
+            };
+
+            setTimeout(tick, 1500);
+        }
+
+        function renderTestResults(results) {
+            results.forEach(res => {
+                if (res.reachable) {
+                    setTestResult(res.id, testBadge(
+                        '#2ecc71',
+                        `تست: ${res.latency_ms}ms`,
+                        `آخرین تست دستی: ${res.checked_at}`
+                    ));
+                } else {
+                    setTestResult(res.id, testBadge(
+                        '#e74c3c',
+                        'تست: ناموفق',
+                        res.error || 'کانفیگ پاسخ نداد'
+                    ));
+                }
+            });
+        }
+
         // Copy Single Config
         // Reads the config from the row's data-text attribute (Jinja-escaped)
         // instead of receiving it as an inlined JS string — avoids XSS/breakage
@@ -2007,6 +2151,9 @@ hysteria2://..." required></textarea>
                                     <button class="btn btn-secondary" style="padding: 6px 10px;"
                                         onclick="copyConfig(this)"
                                         title="کپی کانفیگ">📋</button>
+                                    <button class="btn btn-primary" style="padding: 6px 10px;"
+                                        onclick="testConfigs([${configId}], this)"
+                                        title="تست کانفیگ و نمایش تأخیر واقعی">📶</button>
                                     <button class="btn ${enabled ? 'btn-secondary' : 'btn-success'}" style="padding: 6px 10px;"
                                         onclick="toggleConfigEnabled(${configId}, ${enabled ? 'false' : 'true'})"
                                         title="${enabled ? 'غیرفعال کردن' : 'فعال کردن'}">

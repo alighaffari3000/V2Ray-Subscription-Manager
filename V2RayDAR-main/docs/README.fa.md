@@ -196,7 +196,7 @@ v2raydar --uninstall    # حذف داده‌های برنامه و قوانین 
 | <code>probe.mode</code> | <code>active</code> | &#x200F;حالت بررسی |
 | <code>probe.sing_box_path</code> | <code>null</code> | &#x200F;مسیر sing-box |
 | <code>probe.connect_timeout_ms</code> | <code>5000</code> | &#x200F;زمان اتصال TCP |
-| <code>probe.active_timeout_ms</code> | <code>30000</code> | &#x200F;زمان تست HTTP |
+| <code>probe.active_timeout_ms</code> | <code>8000</code> | &#x200F;زمان تست HTTP |
 | <code>probe.startup_timeout_ms</code> | <code>5000</code> | &#x200F;زمان راه‌اندازی پروکسی |
 | <code>probe.concurrency</code> | <code>16</code> | &#x200F;تعداد بررسی هم‌زمان |
 | <code>probe.batch_size</code> | <code>20</code> | &#x200F;اندازه اولیه دسته |

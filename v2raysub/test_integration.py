@@ -9,6 +9,7 @@ form-encoded validation.
 import json
 import os
 import tempfile
+import time
 import unittest
 
 from werkzeug.security import generate_password_hash
@@ -1195,6 +1196,177 @@ class TestSSRF(IntegrationTestBase):
         self._login()
         # DNS resolution is skipped under testing, so a public hostname is allowed.
         self.assertTrue(self._add('https://example.com/sub')['success'])
+
+
+class TestManualConfigTest(IntegrationTestBase):
+    """On-demand ('test this config now') probing from the configs tab."""
+
+    HEALTHY_URI = 'vmess://healthy-one'
+    BROKEN_URI = 'vmess://broken-one'
+
+    def setUp(self):
+        super().setUp()
+        import utils.constants as constants
+        from services import automation_service
+
+        self.automation_service = automation_service
+        # Keep the shared result slot out of the project directory. A temp dir
+        # (not mkstemp) because the writer os.replace()s onto this path, which
+        # Windows refuses while mkstemp still holds the file open.
+        self.state_dir = tempfile.mkdtemp()
+        constants.MANUAL_TEST_STATE_FILE = os.path.join(self.state_dir, 'state.json')
+
+        self._orig_run_subprocess = automation_service.Runner.run_subprocess
+        # probe_timeout_args() shells out to `worker --help`; short-circuit it.
+        self._orig_supports_flag = automation_service.worker_supports_flag
+        automation_service.worker_supports_flag = lambda path, flag: False
+
+    def tearDown(self):
+        self.automation_service.Runner.run_subprocess = self._orig_run_subprocess
+        self.automation_service.worker_supports_flag = self._orig_supports_flag
+        import shutil
+        shutil.rmtree(self.state_dir, ignore_errors=True)
+        super().tearDown()
+
+    def _stub_engine(self):
+        """Make the engine report HEALTHY_URI as fast and BROKEN_URI as dead."""
+        payload = {
+            'schema_version': 1,
+            'success': True,
+            'worker_version': 'test',
+            'job_id': 'test',
+            'duration_ms': 5,
+            'results': [
+                {'uri': self.HEALTHY_URI, 'protocol': 'vmess', 'reachable': True,
+                 'latency_ms': 142, 'country_code': 'DE', 'validation': 'active_http',
+                 'error': None, 'source': 'manual'},
+                {'uri': self.BROKEN_URI, 'protocol': 'vmess', 'reachable': False,
+                 'latency_ms': None, 'country_code': None, 'validation': 'tcp_connect',
+                 'error': 'connection refused', 'source': 'manual'},
+            ],
+        }
+        self.automation_service.Runner.run_subprocess = (
+            lambda cmd, input_json, timeout=600: (0, json.dumps(payload), '', 12)
+        )
+
+    def _seed(self, uri, **overrides):
+        from database import get_db
+        cols = {'consecutive_failures': 0, 'health_status': 'unknown',
+                'is_enabled': 1, 'status': 'active', 'latency': None}
+        cols.update(overrides)
+        db = get_db()
+        cur = db.execute(
+            f'INSERT INTO configs (config_text, config_type, mode, '
+            f'{", ".join(cols)}) VALUES (?, ?, ?, {", ".join("?" * len(cols))})',
+            [uri, 'vmess', 'manual'] + list(cols.values())
+        )
+        db.commit()
+        cid = cur.lastrowid
+        db.close()
+        return cid
+
+    def _row(self, cid):
+        from database import get_db
+        db = get_db()
+        row = db.execute('SELECT * FROM configs WHERE id = ?', (cid,)).fetchone()
+        db.close()
+        return row
+
+    def test_reports_real_delay_and_records_it(self):
+        self._stub_engine()
+        cid = self._seed(self.HEALTHY_URI)
+
+        ok, _msg, results = self.automation_service.AutomationService.run_manual_test([cid])
+
+        self.assertTrue(ok)
+        self.assertEqual(len(results), 1)
+        self.assertTrue(results[0]['reachable'])
+        self.assertEqual(results[0]['latency_ms'], 142)
+        self.assertEqual(results[0]['id'], cid)
+
+        row = self._row(cid)
+        self.assertEqual(row['latency'], 142)
+        self.assertEqual(row['health_status'], 'healthy')
+        self.assertIsNotNone(row['last_check'])
+
+    def test_failed_probe_reports_the_error(self):
+        self._stub_engine()
+        cid = self._seed(self.BROKEN_URI)
+
+        ok, _msg, results = self.automation_service.AutomationService.run_manual_test([cid])
+
+        self.assertTrue(ok)  # the run succeeded; the config did not
+        self.assertFalse(results[0]['reachable'])
+        self.assertIsNone(results[0]['latency_ms'])
+        self.assertEqual(results[0]['error'], 'connection refused')
+
+    def test_failed_probe_never_disables_or_deletes(self):
+        """The whole point of a manual test: it reads, it does not prune.
+
+        The config is seeded one failure short of the threshold with the
+        cleanup policy set to 'delete' — the scheduled health check would
+        remove it here.
+        """
+        from database import set_setting
+        set_setting('failure_threshold', '2')
+        set_setting('cleanup_policy', 'delete')
+
+        self._stub_engine()
+        cid = self._seed(self.BROKEN_URI, consecutive_failures=1, health_status='healthy')
+
+        ok, _msg, _results = self.automation_service.AutomationService.run_manual_test([cid])
+        self.assertTrue(ok)
+
+        row = self._row(cid)
+        self.assertEqual(row['status'], 'active', 'manual test must not delete a config')
+        self.assertEqual(row['is_enabled'], 1, 'manual test must not disable a config')
+        self.assertEqual(row['consecutive_failures'], 1,
+                         'manual test must not count toward the cleanup threshold')
+
+    def test_endpoint_starts_job_and_status_returns_results(self):
+        self._stub_engine()
+        cid = self._seed(self.HEALTHY_URI)
+        self._login()
+
+        resp = json.loads(self.client.post(
+            '/adminpanel/config/test',
+            json={'ids': [cid]},
+        ).data)
+        self.assertTrue(resp['success'], resp)
+        job_id = resp['job_id']
+        self.assertTrue(job_id)
+
+        # The probe runs on a background thread; wait for it to publish.
+        for _ in range(50):
+            status = json.loads(self.client.get(
+                f'/adminpanel/config/test/status?job_id={job_id}'
+            ).data)
+            if status['state'] != 'running':
+                break
+            time.sleep(0.1)
+
+        self.assertEqual(status['state'], 'done', status)
+        self.assertEqual(status['results'][0]['latency_ms'], 142)
+
+    def test_status_of_a_superseded_job_is_not_reported_as_running(self):
+        self._stub_engine()
+        self._login()
+        status = json.loads(self.client.get(
+            '/adminpanel/config/test/status?job_id=does-not-exist'
+        ).data)
+        self.assertEqual(status['state'], 'unknown')
+
+    def test_rejects_oversized_selection(self):
+        ok, msg, job_id = self.automation_service.AutomationService.start_manual_test(
+            list(range(1, self.automation_service.MANUAL_TEST_MAX_CONFIGS + 2))
+        )
+        self.assertFalse(ok)
+        self.assertIsNone(job_id)
+        self.assertIn(str(self.automation_service.MANUAL_TEST_MAX_CONFIGS), msg)
+
+    def test_requires_login(self):
+        resp = self.client.post('/adminpanel/config/test', json={'ids': [1]})
+        self.assertEqual(resp.status_code, 401)
 
 
 if __name__ == '__main__':

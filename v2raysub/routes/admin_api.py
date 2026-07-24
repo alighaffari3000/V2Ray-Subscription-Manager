@@ -88,6 +88,50 @@ def bulk_delete():
     return jsonify({'success': success, 'message': message})
 
 
+@admin_api_bp.route('/adminpanel/config/test', methods=['POST'])
+def test_configs():
+    """Kick off an on-demand latency probe for the given config ids."""
+    err = _require_login()
+    if err:
+        return err
+
+    from services.automation_service import AutomationService
+
+    ids = _get_json_safe().get('ids', [])
+    success, message, job_id = AutomationService.start_manual_test(ids)
+    return jsonify({'success': success, 'message': message, 'job_id': job_id})
+
+
+@admin_api_bp.route('/adminpanel/config/test/status', methods=['GET'])
+def test_configs_status():
+    """Report the outcome of the on-demand probe started by ``test_configs``."""
+    err = _require_login()
+    if err:
+        return err
+
+    from services.automation_service import read_manual_test_state
+
+    job_id = request.args.get('job_id', '').strip()
+    state = read_manual_test_state()
+
+    # The slot holds only the most recent run, so a mismatched id means this
+    # job's result was overwritten by a newer test rather than "still running".
+    if not state or (job_id and state.get('job_id') != job_id):
+        return jsonify({
+            'success': False,
+            'state': 'unknown',
+            'message': 'نتیجه‌ی این تست در دسترس نیست. دوباره تست کنید.',
+            'results': []
+        })
+
+    return jsonify({
+        'success': state.get('state') != 'error',
+        'state': state.get('state', 'unknown'),
+        'message': state.get('message', ''),
+        'results': state.get('results', [])
+    })
+
+
 # Frontend calls /adminpanel/config/set_enabled/<id>
 @admin_api_bp.route('/adminpanel/config/set_enabled/<int:config_id>', methods=['POST'])
 def set_enabled(config_id):
@@ -398,17 +442,17 @@ def save_automation_settings():
     
     db = get_db()
     try:
-        for key in ['scan_interval', 'health_check_interval', 'max_active_configs', 'max_new_configs_per_scan', 'failure_threshold', 'cleanup_policy', 'scan_timeout', 'device_window_days', 'device_grace_hours', 'profile_update_interval_hours']:
+        for key in ['scan_interval', 'health_check_interval', 'max_active_configs', 'max_new_configs_per_scan', 'failure_threshold', 'cleanup_policy', 'scan_timeout', 'device_window_days', 'device_grace_hours', 'profile_update_interval_hours', 'probe_timeout_ms', 'refine_pass_multiplier']:
             if key in data:
                 val = str(data[key]).strip()
                 db.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', (key, val))
-        # early_stop_enabled is a checkbox; an unchecked box is omitted from the
-        # form entirely, so only touch it on a real settings-form submit and
-        # treat absence there as "off".
-        if any(k in data for k in ['scan_interval', 'max_active_configs', 'early_stop_enabled']):
-            raw = str(data.get('early_stop_enabled', '')).strip().lower()
-            es_val = '1' if raw in ('1', 'true', 'on', 'yes') else '0'
-            db.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', ('early_stop_enabled', es_val))
+        # Checkboxes are omitted from the form entirely when unchecked, so only
+        # touch them on a real settings-form submit and treat absence as "off".
+        if any(k in data for k in ['scan_interval', 'max_active_configs', 'early_stop_enabled', 'refine_pass_enabled']):
+            for cb_key in ('early_stop_enabled', 'refine_pass_enabled'):
+                raw = str(data.get(cb_key, '')).strip().lower()
+                cb_val = '1' if raw in ('1', 'true', 'on', 'yes') else '0'
+                db.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', (cb_key, cb_val))
         db.commit()
         return jsonify({'success': True, 'message': 'تنظیمات اتوماسیون با موفقیت ذخیره شد'})
     except Exception as e:

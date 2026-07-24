@@ -115,6 +115,9 @@ def admin():
     cleanup_policy = get_setting('cleanup_policy', 'disable')
     early_stop_enabled = get_setting('early_stop_enabled', '1')
     scan_timeout = get_setting('scan_timeout', '1200')
+    probe_timeout_ms = get_setting('probe_timeout_ms', '8000')
+    refine_pass_enabled = get_setting('refine_pass_enabled', '1')
+    refine_pass_multiplier = get_setting('refine_pass_multiplier', '3')
     device_window_days = get_setting('device_window_days', '7')
     device_grace_hours = get_setting('device_grace_hours', '0')
     profile_update_interval_hours = get_setting('profile_update_interval_hours', '6')
@@ -157,6 +160,9 @@ def admin():
         cleanup_policy=cleanup_policy,
         early_stop_enabled=early_stop_enabled,
         scan_timeout=scan_timeout,
+        probe_timeout_ms=probe_timeout_ms,
+        refine_pass_enabled=refine_pass_enabled,
+        refine_pass_multiplier=refine_pass_multiplier,
         device_window_days=device_window_days,
         device_grace_hours=device_grace_hours,
         profile_update_interval_hours=profile_update_interval_hours,

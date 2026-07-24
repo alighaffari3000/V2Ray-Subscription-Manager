@@ -32,7 +32,10 @@ pub const DEFAULT_SUBSCRIPTION_PRIORITY: u32 = 100;
 pub const DEFAULT_SUBSCRIPTION_ENABLED: bool = true;
 pub const DEFAULT_SING_BOX_PATH: &str = "";
 pub const DEFAULT_CONNECT_TIMEOUT_MS: u64 = 5_000;
-pub const DEFAULT_ACTIVE_TIMEOUT_MS: u64 = 30_000;
+/// A candidate that needs longer than this to answer a 204 probe is too slow to
+/// be worth importing, and every failing probe blocks a slot for the full
+/// duration — so this cap is the single biggest lever on scan wall-clock.
+pub const DEFAULT_ACTIVE_TIMEOUT_MS: u64 = 8_000;
 pub const DEFAULT_STARTUP_TIMEOUT_MS: u64 = 5_000;
 pub const DEFAULT_PROBE_CONCURRENCY: usize = 16;
 pub const DEFAULT_PROBE_BATCH_SIZE: Option<usize> = Some(20);

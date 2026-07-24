@@ -21,6 +21,12 @@ from utils.process_lock import InterProcessLock
 SCAN_LOCK = threading.Lock()
 SCAN_FILE_LOCK = InterProcessLock(constants.SCAN_LOCK_FILE)
 
+# On-demand ("test this config now") probing bounds. The cap keeps a single
+# click from spawning a pool-wide scan behind the admin's back, and the
+# per-config budget keeps the request from outliving the browser waiting on it.
+MANUAL_TEST_MAX_CONFIGS = 50
+MANUAL_TEST_SECONDS_PER_CONFIG = 20
+
 
 def is_scan_active():
     """True if a scan is running in this or any other worker process."""
@@ -75,6 +81,19 @@ def get_validated_timeout(key, default):
         print(f"Validation Error: setting '{key}' value '{raw}' is not a valid integer: {e}. Falling back to default: {default}")
         return default
 
+def get_validated_int(key, default, low, high):
+    """Retrieve and validate an integer setting constrained to [low, high]."""
+    raw = get_setting(key, str(default))
+    try:
+        val = int(raw)
+        if low <= val <= high:
+            return val
+        print(f"Validation Warning: setting '{key}' value {val} is out of bounds [{low}, {high}]. Falling back to default: {default}")
+        return default
+    except (ValueError, TypeError) as e:
+        print(f"Validation Error: setting '{key}' value '{raw}' is not a valid integer: {e}. Falling back to default: {default}")
+        return default
+
 def locate_v2raydar():
     """Locate the V2RayDAR executable dynamically or via .env settings."""
     env_path = os.getenv('V2RAYDAR_PATH')
@@ -107,6 +126,53 @@ def locate_v2raydar():
             return resolved
             
     return 'v2raydar' # fallback
+
+
+_WORKER_FLAG_SUPPORT = {}
+_WORKER_FLAG_LOCK = threading.Lock()
+
+def worker_supports_flag(v2raydar_path, flag):
+    """Report whether the installed engine binary accepts `flag`.
+
+    The panel and the engine are versioned independently: install.sh downloads a
+    prebuilt v2raydar from GitHub Releases, so an updated panel can still be
+    driving an older binary that would abort on an unrecognised argument.
+    Reading `worker --help` once per binary keeps new flags optional rather
+    than fatal. On any error we assume unsupported — losing a tuning knob is
+    strictly better than failing every scan.
+    """
+    key = (v2raydar_path, flag)
+    with _WORKER_FLAG_LOCK:
+        if key in _WORKER_FLAG_SUPPORT:
+            return _WORKER_FLAG_SUPPORT[key]
+
+    supported = False
+    try:
+        proc = subprocess.run(
+            [v2raydar_path, "worker", "--help"],
+            capture_output=True, text=True, timeout=15
+        )
+        supported = flag in ((proc.stdout or "") + (proc.stderr or ""))
+        if not supported:
+            print(f"Engine at '{v2raydar_path}' does not support {flag}; the panel will omit it. Rebuild/update the engine to enable it.")
+    except Exception as e:
+        print(f"Engine capability check for {flag} failed: {e}. Assuming unsupported.")
+
+    with _WORKER_FLAG_LOCK:
+        _WORKER_FLAG_SUPPORT[key] = supported
+    return supported
+
+
+def probe_timeout_args(v2raydar_path):
+    """CLI fragment capping the engine's per-candidate probe timeout.
+
+    Worker mode never reads configs.yaml, so this flag is the only way to tune
+    the timeout. Returns [] on engines that predate the flag.
+    """
+    if not worker_supports_flag(v2raydar_path, '--probe-timeout-ms'):
+        return []
+    timeout_ms = get_validated_int('probe_timeout_ms', 8000, 1000, 120000)
+    return ["--probe-timeout-ms", str(timeout_ms)]
 
 
 _ACTIVE_SUBPROCESSES = []
@@ -209,6 +275,120 @@ class ResultParser:
             raise ValueError(f"Worker reported failure: {error_msg}")
             
         return data
+
+
+class RefinementPass:
+    """Re-measures the fastest discovery survivors under near-serial load.
+
+    Discovery probes up to 20 candidates per sing-box process across several
+    processes, so a recorded latency partly measures how busy the box was when
+    that config happened to be tested — a good config that landed in a crowded
+    batch ranks below a worse one that got a quiet slot. This pass re-runs the
+    top survivors through `worker health` in small chunks at probe concurrency
+    1 and replaces their latencies with the uncontended numbers, so the import
+    step ranks on signal instead of scheduling luck.
+
+    Note the engine widens the requested HTTP concurrency to
+    `sqrt(batch_entries) * requested` (probe.rs `active_probe_http_concurrency`),
+    so asking for 1 is not enough on its own — the chunk has to be small too.
+    A chunk of 4 yields 2 in-flight probes against discovery's 20 per process.
+    """
+
+    # Chosen against the sqrt() widening above, not arbitrary: raising this
+    # re-introduces exactly the contention the pass exists to remove.
+    CHUNK_SIZE = 4
+
+    # Ceiling on wall-clock regardless of how many configs qualify; a scan that
+    # spends all its budget re-measuring has defeated the purpose.
+    MAX_SECONDS = 600
+
+    @staticmethod
+    def run(v2raydar_path, results, job_id, target_count):
+        """Return `results` with refined latencies merged into the top entries.
+
+        Never raises: a refinement failure leaves the discovery numbers intact
+        rather than losing a scan that already succeeded.
+        """
+        if get_setting('refine_pass_enabled', '1') != '1':
+            return results
+
+        survivors = [
+            r for r in results
+            if r.get('reachable') and r.get('latency_ms') is not None
+        ]
+        if len(survivors) < 2:
+            # Nothing to reorder.
+            return results
+
+        multiplier = get_validated_int('refine_pass_multiplier', 3, 1, 10)
+        # Re-measure a superset of what we could import, so the ranking has room
+        # to reshuffle rather than just confirming discovery's ordering.
+        limit = max(1, (target_count or len(survivors)) * multiplier)
+        survivors.sort(key=lambda r: r['latency_ms'])
+        shortlist = survivors[:limit]
+
+        print(f"[{job_id}] Refinement pass: re-measuring {len(shortlist)} of {len(survivors)} survivors at low concurrency.")
+
+        probe_timeout_ms = get_validated_int('probe_timeout_ms', 8000, 1000, 120000)
+        timeout_args = probe_timeout_args(v2raydar_path)
+        # Worst case a chunk is fully serial, plus sing-box startup headroom.
+        chunk_timeout = int(RefinementPass.CHUNK_SIZE * probe_timeout_ms / 1000) + 30
+
+        refined = {}
+        started = time.monotonic()
+        for offset in range(0, len(shortlist), RefinementPass.CHUNK_SIZE):
+            if is_cancel_requested():
+                print(f"[{job_id}] Refinement pass cancelled; keeping discovery latencies for the rest.")
+                break
+            if time.monotonic() - started > RefinementPass.MAX_SECONDS:
+                print(f"[{job_id}] Refinement pass hit its {RefinementPass.MAX_SECONDS}s budget after {len(refined)} configs; keeping discovery latencies for the rest.")
+                break
+
+            chunk = shortlist[offset:offset + RefinementPass.CHUNK_SIZE]
+            input_json = json.dumps({
+                "schema_version": 1,
+                "mode": "health_check",
+                "job_id": f"{job_id}-refine",
+                "configs": [
+                    {"uri": c.get('uri'), "protocol": c.get('protocol')}
+                    for c in chunk
+                ],
+                "timeout_seconds": chunk_timeout,
+            })
+            cmd = [
+                v2raydar_path, "worker", "health",
+                "--probe-concurrency", "1",
+                "--probe-process-concurrency", "1",
+            ] + timeout_args
+
+            try:
+                ret_code, stdout, stderr, _ = Runner.run_subprocess(cmd, input_json, timeout=chunk_timeout)
+                if ret_code != 0:
+                    print(f"[{job_id}] Refinement chunk failed (exit {ret_code}): {stderr}. Keeping discovery latencies for it.")
+                    continue
+                log_worker_stderr(job_id, stderr)
+                for r in ResultParser.parse(stdout).get("results", []):
+                    if r.get('reachable') and r.get('latency_ms') is not None:
+                        refined[r.get('uri')] = r['latency_ms']
+            except Exception as e:
+                print(f"[{job_id}] Refinement chunk errored: {e}. Keeping discovery latencies for it.")
+                continue
+
+        if not refined:
+            return results
+
+        # A config that failed re-probing keeps its discovery result: it passed
+        # moments ago, and one flaky re-probe is weaker evidence than dropping
+        # it deserves. The scheduled health check will retire it if it is dead.
+        deltas = 0
+        for r in results:
+            new_latency = refined.get(r.get('uri'))
+            if new_latency is not None and new_latency != r.get('latency_ms'):
+                r['latency_ms'] = new_latency
+                deltas += 1
+
+        print(f"[{job_id}] Refinement pass done: {len(refined)} re-measured, {deltas} latencies corrected.")
+        return results
 
 
 class ConfigImporter:
@@ -623,6 +803,30 @@ def is_cancel_requested():
     return os.path.exists(constants.SCAN_CANCEL_FLAG)
 
 
+def write_manual_test_state(payload):
+    """Publish the on-demand test's state so any gunicorn worker can serve it.
+
+    Written via a temp file + os.replace so a poll that lands mid-write reads
+    the previous complete state instead of a truncated one.
+    """
+    try:
+        tmp_path = f'{constants.MANUAL_TEST_STATE_FILE}.{os.getpid()}.tmp'
+        with open(tmp_path, 'w', encoding='utf-8') as f:
+            json.dump(payload, f)
+        os.replace(tmp_path, constants.MANUAL_TEST_STATE_FILE)
+    except OSError as e:
+        print(f"Failed to persist manual test state: {e}")
+
+
+def read_manual_test_state():
+    """Return the last published on-demand test state, or None."""
+    try:
+        with open(constants.MANUAL_TEST_STATE_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
 class AutomationService:
     """Orchestrates standard input/output scans with subprocess execution lock."""
     
@@ -630,6 +834,206 @@ class AutomationService:
     def cancel_scan():
         set_cancel_requested(True)
         terminate_all_subprocesses()
+
+    @staticmethod
+    def start_manual_test(config_ids):
+        """Validate an on-demand test request and run it in the background.
+
+        Returns ``(success, message, job_id)``. Probing can easily outlast
+        gunicorn's 30s request timeout, so the browser gets a job id straight
+        away and polls for the outcome instead of holding the request open
+        (which would also tie up one of only three workers).
+        """
+        wanted = []
+        try:
+            for raw in (config_ids or []):
+                cid = int(raw)
+                if cid not in wanted:
+                    wanted.append(cid)
+        except (TypeError, ValueError):
+            return False, 'شناسه‌ی کانفیگ نامعتبر است.', None
+
+        if not wanted:
+            return False, 'هیچ کانفیگی برای تست انتخاب نشده است.', None
+        if len(wanted) > MANUAL_TEST_MAX_CONFIGS:
+            return False, f'حداکثر {MANUAL_TEST_MAX_CONFIGS} کانفیگ در هر تست قابل بررسی است.', None
+        if is_scan_active():
+            return False, 'یک اسکن در حال اجراست؛ پس از پایان آن دوباره تلاش کنید.', None
+
+        job_id = uuid.uuid4().hex
+        write_manual_test_state({
+            'job_id': job_id,
+            'state': 'running',
+            'message': 'در حال تست…',
+            'ids': wanted,
+            'results': [],
+            'updated_at': time.time(),
+        })
+
+        threading.Thread(
+            target=AutomationService.run_manual_test,
+            args=(wanted, job_id),
+            daemon=True
+        ).start()
+
+        return True, f'تست {len(wanted)} کانفیگ آغاز شد…', job_id
+
+    @staticmethod
+    def run_manual_test(config_ids, job_id=None):
+        """Probe specific configs on demand and report their real delay.
+
+        Returns ``(success, message, results)`` where each result carries the
+        config id, whether it answered, and its latency in ms. The same values
+        are published to the shared state file for the polling frontend.
+
+        Deliberately does NOT go through ``HealthManager.process_health_results``:
+        that path counts consecutive failures and, once the threshold is hit,
+        disables or deletes the config per the cleanup policy. An admin clicking
+        "test" wants a reading, not a pool mutation — so a failed manual probe
+        only refreshes ``last_check`` and leaves the failure counter alone.
+        """
+        job_id = job_id or uuid.uuid4().hex
+        wanted = list(config_ids or [])
+
+        def publish(success, message, results):
+            write_manual_test_state({
+                'job_id': job_id,
+                'state': 'done' if success else 'error',
+                'message': message,
+                'ids': wanted,
+                'results': results,
+                'updated_at': time.time(),
+            })
+            return success, message, results
+
+        if not wanted:
+            return publish(False, 'هیچ کانفیگی برای تست انتخاب نشده است.', [])
+
+        # Share the scan lock rather than adding a second one: the Rust worker is
+        # memory-hungry, and a manual test running beside a full scan is exactly
+        # what the systemd memory cap exists to prevent.
+        if not SCAN_LOCK.acquire(blocking=False):
+            return publish(False, 'یک اسکن در حال اجراست؛ پس از پایان آن دوباره تلاش کنید.', [])
+        if not SCAN_FILE_LOCK.acquire(blocking=False):
+            SCAN_LOCK.release()
+            return publish(False, 'یک اسکن در حال اجراست؛ پس از پایان آن دوباره تلاش کنید.', [])
+
+        # A stale cancel flag left by an earlier aborted scan would make
+        # _watch_for_cancel kill this probe the instant it starts.
+        set_cancel_requested(False)
+
+        try:
+            placeholders = ','.join('?' * len(wanted))
+            db = get_db()
+            try:
+                rows = db.execute(
+                    'SELECT id, config_text, config_type FROM configs '
+                    f'WHERE status="active" AND id IN ({placeholders})',
+                    wanted
+                ).fetchall()
+            finally:
+                db.close()
+
+            if not rows:
+                return publish(False, 'کانفیگ انتخاب‌شده پیدا نشد.', [])
+
+            configs_list = [
+                {'uri': r['config_text'], 'protocol': r['config_type']} for r in rows
+            ]
+            timeout = max(60, min(600, len(configs_list) * MANUAL_TEST_SECONDS_PER_CONFIG))
+
+            input_json = json.dumps({
+                'schema_version': 1,
+                'mode': 'health_check',
+                'job_id': job_id,
+                'configs': configs_list,
+                'timeout_seconds': timeout,
+            })
+
+            probe_c = get_validated_concurrency('probe_concurrency', 10)
+            probe_pc = get_validated_concurrency('probe_process_concurrency', 2)
+            v2raydar_path = locate_v2raydar()
+            cmd = [
+                v2raydar_path, 'worker', 'health',
+                '--probe-concurrency', str(probe_c),
+                '--probe-process-concurrency', str(probe_pc),
+            ] + probe_timeout_args(v2raydar_path)
+
+            print(f'[{job_id}] Manual test started for {len(configs_list)} config(s).')
+            ret_code, stdout, stderr, _duration_ms = Runner.run_subprocess(
+                cmd, input_json, timeout=timeout
+            )
+
+            if ret_code != 0:
+                print(f'[{job_id}] Manual test worker failed (exit {ret_code}). Stderr: {stderr}')
+                return publish(False, 'اجرای موتور تست ناموفق بود.', [])
+
+            log_worker_stderr(job_id, stderr)
+
+            try:
+                parsed_output = ResultParser.parse(stdout)
+            except Exception as e:
+                print(f'[{job_id}] Manual test parse error: {e}')
+                return publish(False, 'خواندن نتیجه‌ی تست ناموفق بود.', [])
+
+            by_uri = {item.get('uri'): item for item in parsed_output.get('results', [])}
+            checked_at = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+            results = []
+            db = get_db()
+            try:
+                for r in rows:
+                    item = by_uri.get(r['config_text'])
+                    latency = item.get('latency_ms') if item else None
+                    reachable = bool(item and item.get('reachable') and latency is not None)
+
+                    if reachable:
+                        db.execute(
+                            '''UPDATE configs SET
+                                last_check = ?,
+                                last_success = ?,
+                                latency = ?,
+                                consecutive_failures = 0,
+                                health_status = 'healthy'
+                            WHERE id = ?''',
+                            (checked_at, checked_at, int(latency), r['id'])
+                        )
+                    else:
+                        db.execute(
+                            'UPDATE configs SET last_check = ? WHERE id = ?',
+                            (checked_at, r['id'])
+                        )
+
+                    if item is None:
+                        error = 'موتور تست پاسخی برای این کانفیگ برنگرداند.'
+                    else:
+                        error = item.get('error')
+
+                    results.append({
+                        'id': r['id'],
+                        'reachable': reachable,
+                        'latency_ms': int(latency) if reachable else None,
+                        'error': None if reachable else error,
+                        'checked_at': checked_at,
+                    })
+                db.commit()
+            finally:
+                db.close()
+
+            ok_count = sum(1 for item in results if item['reachable'])
+            fail_count = len(results) - ok_count
+            print(f'[{job_id}] Manual test finished. Healthy: {ok_count}, Failed: {fail_count}')
+            return publish(True, f'تست انجام شد — {ok_count} سالم، {fail_count} ناموفق.', results)
+
+        except Exception as e:
+            print(f'[{job_id}] Exception during manual test: {e}')
+            return publish(False, f'خطا در اجرای تست: {e}', [])
+        finally:
+            SCAN_FILE_LOCK.release()
+            try:
+                SCAN_LOCK.release()
+            except RuntimeError:
+                pass
 
     @staticmethod
     def run_scan(mode):
@@ -719,6 +1123,7 @@ class AutomationService:
                 # so the engine halts once that many reachable configs are found.
                 # Enabled by default; the toggle lets the user force a full scan.
                 early_stop = get_setting('early_stop_enabled', '1') == '1'
+                target_count = 0
                 if early_stop:
                     max_new = int(get_setting('max_new_configs_per_scan', '10'))
                     available_capacity = max(0, max_active - active_count)
@@ -743,14 +1148,14 @@ class AutomationService:
                     "--fetch-concurrency", str(fetch_c),
                     "--probe-concurrency", str(probe_c),
                     "--probe-process-concurrency", str(probe_pc)
-                ]
+                ] + probe_timeout_args(v2raydar_path)
                 ret_code, stdout, stderr, duration_ms = Runner.run_subprocess(cmd, input_json, timeout=scan_timeout)
-                
+
                 if ret_code != 0:
                     status = 'cancelled' if is_cancel_requested() else 'failed'
                     err_desc = "Scan cancelled by user." if is_cancel_requested() else f"V2RayDAR exit code {ret_code}. Stderr: {stderr}"
                     print(f"[{job_id}] Worker failed or cancelled. Status: {status}. Error: {err_desc}")
-                    
+
                     MetricsRecorder.update_scan_history(
                         scan_id=scan_id,
                         duration_ms=duration_ms,
@@ -781,7 +1186,11 @@ class AutomationService:
                 
                 worker_version = parsed_output.get("worker_version")
                 results = parsed_output.get("results", [])
-                
+
+                # Re-measure the fastest survivors before import ranks them —
+                # discovery latencies are contaminated by probe contention.
+                results = RefinementPass.run(v2raydar_path, results, job_id, target_count)
+
                 added_count, duplicate_count, replaced_count = ConfigImporter.import_discovered_configs(results, started_at_str, scan_id=scan_id)
                 
                 # Deduce per-source operational success
@@ -875,7 +1284,7 @@ class AutomationService:
                     v2raydar_path, "worker", "health",
                     "--probe-concurrency", str(probe_c),
                     "--probe-process-concurrency", str(probe_pc)
-                ]
+                ] + probe_timeout_args(v2raydar_path)
                 ret_code, stdout, stderr, duration_ms = Runner.run_subprocess(cmd, input_json, timeout=scan_timeout)
                 
                 if ret_code != 0:

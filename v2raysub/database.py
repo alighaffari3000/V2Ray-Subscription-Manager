@@ -218,6 +218,15 @@ def init_db():
     db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('probe_process_concurrency', '2')")
     db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('scan_timeout', '1200')")
 
+    # Probe tuning. probe_timeout_ms caps how long one candidate may take to
+    # answer the engine's 204 check: every failing probe holds its slot for the
+    # full duration, so this is the main lever on scan wall-clock. The refine
+    # pass re-measures the fastest survivors at low concurrency so the import
+    # ranking reflects real latency rather than probe contention.
+    db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('probe_timeout_ms', '8000')")
+    db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('refine_pass_enabled', '1')")
+    db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('refine_pass_multiplier', '3')")
+
     # Device-limit knobs: how long a device slot stays "active" (rolling window),
     # and an optional grace window after activation during which the cap is not
     # enforced. See DEVICE_LIMIT_ROADMAP.md and services/user_service.py.

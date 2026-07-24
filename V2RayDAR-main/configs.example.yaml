@@ -59,7 +59,7 @@ probe:
   # TCP diagnostic timeout in milliseconds; lower fails faster on bad networks.
   connect_timeout_ms: 5000
   # HTTP active-probe timeout per candidate; high values slow failed probes.
-  active_timeout_ms: 30000
+  active_timeout_ms: 8000
   # Wait time for each temporary sing-box process to start.
   startup_timeout_ms: 5000
   # HTTP checks per active batch; high values can increase CPU/network pressure.

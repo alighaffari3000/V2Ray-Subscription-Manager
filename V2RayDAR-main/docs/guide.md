@@ -481,7 +481,7 @@ http://192.168.1.23:27141/subscription?token=GENERATED_TOKEN
 | `probe.mode` | `active` or `tcp` | `active` | Validation strategy. |
 | `probe.sing_box_path` | String or null | `null` | Optional path to `sing-box`. Leave `null` for desktop `_with_singbox` builds or Termux's package path. |
 | `probe.connect_timeout_ms` | Integer milliseconds | `5000` | TCP connect timeout in `tcp` mode. |
-| `probe.active_timeout_ms` | Integer milliseconds | `30000` | HTTP request timeout in active mode. |
+| `probe.active_timeout_ms` | Integer milliseconds | `8000` | HTTP request timeout in active mode. |
 | `probe.startup_timeout_ms` | Integer milliseconds | `5000` | Time to wait for temporary `sing-box` proxies to start. |
 | `probe.concurrency` | Integer | `16` | Base probe concurrency. |
 | `probe.batch_size` | Integer or null | `20` | Initial active-probe batch size. The batch sizer can grow or shrink during a run. |
@@ -1343,7 +1343,7 @@ probe:
   mode: active
   sing_box_path: null
   connect_timeout_ms: 5000
-  active_timeout_ms: 30000
+  active_timeout_ms: 8000
   startup_timeout_ms: 5000
   concurrency: 16
   batch_size: 20
