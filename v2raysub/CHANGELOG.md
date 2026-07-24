@@ -12,6 +12,22 @@
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-07-25
+
+### Added
+- **دکمه‌ی تست دستی کانفیگ در تب «کانفیگ‌ها».** هر ردیف در «لیست کانفیگ‌ها» یک دکمه‌ی
+  📶 گرفته و کنار «کپی انتخاب‌شده‌ها»/«حذف انتخاب‌شده‌ها» دکمه‌ی **«تست انتخاب‌شده‌ها»**
+  اضافه شده است. نتیجه — تأخیر واقعی بر حسب میلی‌ثانیه، یا دلیل شکست در tooltip — همان‌جا
+  کنار همان کانفیگ نشان داده می‌شود و مقدار `latency` در دیتابیس هم به‌روز می‌شود.
+  تست از همان مسیر `worker health` موتور می‌گذرد، ولی **برخلاف health-check
+  زمان‌بندی‌شده هیچ‌وقت کانفیگ را غیرفعال یا حذف نمی‌کند** و شمارنده‌ی
+  `consecutive_failures` را بالا نمی‌برد — تست دستی فقط می‌خواند، هرس نمی‌کند.
+  چون پروب می‌تواند از تایم‌اوت ۳۰ ثانیه‌ای gunicorn طولانی‌تر شود، درخواست بلافاصله یک
+  `job_id` برمی‌گرداند و مرورگر نتیجه را poll می‌کند؛ نتیجه در یک فایل مشترک ذخیره
+  می‌شود تا هر gunicorn worker بتواند آن را پاسخ دهد. سقف هر تست ۵۰ کانفیگ است و تا
+  وقتی اسکنی در حال اجراست تست دستی رد می‌شود (همان قفل اسکن، برای جلوگیری از فشار
+  همزمان روی RAM).
+
 ## [1.9.0] - 2026-07-25
 
 ### Added
@@ -204,7 +220,8 @@
 - نمایش نسخه در پایان نصب/آپدیت: «Version X.Y.Z installed/updated successfully».
 - مدیریت کاربران (user-management) و محدودیت تعداد دستگاه (device-limit).
 
-[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.9.0...HEAD
+[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.10.0...HEAD
+[1.10.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.6.4...v1.7.0
