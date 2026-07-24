@@ -1088,6 +1088,7 @@
                                 <th>نام منبع</th>
                                 <th>آدرس URL</th>
                                 <th style="text-align: center;" width="90">اولویت</th>
+                                <th style="text-align: center;" width="110" title="تعداد کانفیگ‌های این منبع که هم‌اکنون در لیست کانفیگ‌های فعال هستند">کانفیگ فعال</th>
                                 <th style="text-align: center;" width="140">وضعیت اسکن</th>
                                 <th style="text-align: center;" width="90">فعال</th>
                                 <th style="text-align: center;" width="90">عملیات</th>
@@ -1101,6 +1102,20 @@
                                     <td style="direction: ltr; text-align: left; font-size: 12px; opacity: 0.8;" title="{{ src.url }}">{{ src.url | truncate(55) }}</td>
                                     <td style="text-align: center;">
                                         <input type="number" value="{{ src.priority }}" min="1" max="1000" style="width: 65px; text-align: center; padding: 4px; border: 1px solid var(--input-border); border-radius: 4px; background: var(--input-bg); color: var(--text-color);" onblur="updateSourcePriority({{ src.id }}, this.value)">
+                                    </td>
+                                    {% set counts = source_config_counts.get(src.name, {}) %}
+                                    {% set enabled_configs = counts.get('enabled', 0) %}
+                                    {% set total_configs = counts.get('total', 0) %}
+                                    <td style="text-align: center;">
+                                        {% if enabled_configs > 0 %}
+                                            <strong style="color: #2ecc71; font-size: 15px;">{{ enabled_configs }}</strong>
+                                        {% else %}
+                                            <strong style="color: #e74c3c; font-size: 15px;">0</strong>
+                                            <div style="color: #e74c3c; font-size: 10px; margin-top: 3px;">بی‌خاصیت</div>
+                                        {% endif %}
+                                        {% if total_configs > enabled_configs %}
+                                            <div style="opacity: 0.6; font-size: 10px; margin-top: 3px;" title="کانفیگ‌های این منبع که در لیست هستند ولی خاموش شده‌اند">{{ total_configs - enabled_configs }} خاموش</div>
+                                        {% endif %}
                                     </td>
                                     <td style="text-align: center; font-size: 11px;">
                                         {% if src.last_scan %}
@@ -1126,7 +1141,7 @@
                                 {% endfor %}
                             {% else %}
                                 <tr>
-                                    <td colspan="6" style="text-align: center; opacity: 0.6; padding: 20px;">هیچ منبع خودکاری اضافه نشده است</td>
+                                    <td colspan="7" style="text-align: center; opacity: 0.6; padding: 20px;">هیچ منبع خودکاری اضافه نشده است</td>
                                 </tr>
                             {% endif %}
                         </tbody>

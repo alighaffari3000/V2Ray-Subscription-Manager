@@ -12,6 +12,18 @@
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-07-25
+
+### Added
+- **ستون «کانفیگ فعال» در جدول منابع خودکار (تب اسکن خودکار).** کنار هر منبع حالا
+  نوشته می‌شود که هم‌اکنون چند کانفیگ از آن منبع در لیست کانفیگ‌های فعال حضور دارد،
+  تا منبع‌های بی‌خاصیت قابل شناسایی و حذف باشند. `admin()` در
+  `routes/admin_pages.py` جدول `configs` را روی ستون `source` گروه‌بندی می‌کند
+  (فقط `status = 'active'`) و دیکشنری `source_config_counts` را به قالب می‌دهد.
+  عدد سبز = کانفیگ‌های سرو‌شونده (`is_enabled = 1`)؛ منبعی که عددش صفر باشد با
+  برچسب قرمز «بی‌خاصیت» علامت می‌خورد و کانفیگ‌های خاموش‌شده هم زیرش جدا شمرده
+  می‌شوند.
+
 ## [1.7.0] - 2026-07-24
 
 ### Added
@@ -163,7 +175,8 @@
 - نمایش نسخه در پایان نصب/آپدیت: «Version X.Y.Z installed/updated successfully».
 - مدیریت کاربران (user-management) و محدودیت تعداد دستگاه (device-limit).
 
-[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.6.4...v1.7.0
 [1.6.4]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.6.3...v1.6.4
 [1.6.3]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.6.2...v1.6.3

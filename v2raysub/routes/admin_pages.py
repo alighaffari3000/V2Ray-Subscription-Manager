@@ -86,6 +86,21 @@ def admin():
     
     auto_sources = db.execute('SELECT * FROM auto_sources ORDER BY priority DESC, created_at ASC').fetchall()
     scan_history = db.execute('SELECT * FROM scan_history ORDER BY started_at DESC LIMIT 5').fetchall()
+
+    # How many configs each source currently contributes to the active list, so
+    # a source that never yields anything is visible and can be dropped.
+    # configs.source holds the auto_sources.name written at import time.
+    source_config_counts = {
+        row['source']: {'total': row['total'], 'enabled': row['enabled']}
+        for row in db.execute(
+            """SELECT source,
+                      COUNT(*) AS total,
+                      SUM(CASE WHEN is_enabled = 1 THEN 1 ELSE 0 END) AS enabled
+                 FROM configs
+                WHERE status = 'active' AND source IS NOT NULL AND source != ''
+                GROUP BY source"""
+        ).fetchall()
+    }
     
     manual_count = db.execute("SELECT COUNT(*) as count FROM configs WHERE mode = 'manual' AND status = 'active'").fetchone()['count']
     auto_count = db.execute("SELECT COUNT(*) as count FROM configs WHERE mode = 'auto' AND status = 'active'").fetchone()['count']
@@ -128,6 +143,7 @@ def admin():
         config_sort_order=sort_dir,
         base_url=base_url,
         auto_sources=auto_sources,
+        source_config_counts=source_config_counts,
         scan_history=scan_history,
         manual_count=manual_count,
         auto_count=auto_count,
