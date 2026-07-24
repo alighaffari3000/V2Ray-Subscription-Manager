@@ -406,6 +406,47 @@ def toggle_auto_source(source_id):
         db.close()
 
 
+@admin_api_bp.route('/adminpanel/auto_sources/edit/<int:source_id>', methods=['POST'])
+def edit_auto_source(source_id):
+    import sqlite3
+    from database import get_db
+    err = _require_login()
+    if err:
+        return err
+
+    data = _get_json_safe()
+    name = str(data.get('name', '')).strip()
+    url = str(data.get('url', '')).strip()
+    try:
+        priority = int(data.get('priority', 100))
+    except (ValueError, TypeError):
+        priority = 100
+
+    if not name or not url:
+        return jsonify({'success': False, 'message': 'نام و آدرس منبع الزامی است'})
+
+    from flask import current_app
+    from utils.net import validate_source_url
+    ok, msg = validate_source_url(url, resolve_dns=not current_app.config.get('TESTING'))
+    if not ok:
+        return jsonify({'success': False, 'message': msg})
+
+    db = get_db()
+    try:
+        db.execute(
+            'UPDATE auto_sources SET name = ?, url = ?, priority = ? WHERE id = ?',
+            (name, url, priority, source_id)
+        )
+        db.commit()
+        return jsonify({'success': True, 'message': 'منبع خودکار با موفقیت ویرایش شد'})
+    except sqlite3.IntegrityError:
+        return jsonify({'success': False, 'message': 'منبعی با این آدرس قبلاً ثبت شده است'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'خطا در ویرایش منبع: {e}'})
+    finally:
+        db.close()
+
+
 @admin_api_bp.route('/adminpanel/auto_sources/priority/<int:source_id>', methods=['POST'])
 def update_auto_source_priority(source_id):
     from database import get_db

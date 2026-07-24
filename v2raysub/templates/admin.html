@@ -485,7 +485,7 @@
                 <button class="nav-item active" id="mtab-dashboard" role="tab" onclick="switchTab('dashboard', this)"><span class="nav-ico">📊</span>داشبورد</button>
                 <button class="nav-item" id="mtab-users" role="tab" onclick="switchTab('users', this)"><span class="nav-ico">👥</span>کاربران <span class="nav-count">{{ total_users }}</span></button>
                 <button class="nav-item" id="mtab-configs" role="tab" onclick="switchTab('configs', this)"><span class="nav-ico">📁</span>کانفیگ‌ها <span class="nav-count">{{ total_configs }}</span></button>
-                <button class="nav-item" id="mtab-automation" role="tab" onclick="switchTab('automation', this)"><span class="nav-ico">🤖</span>اسکن خودکار</button>
+                <button class="nav-item" id="mtab-automation" role="tab" onclick="switchTab('automation', this)"><span class="nav-ico">🤖</span>ساب‌های منبع</button>
                 <button class="nav-item" id="mtab-settings" role="tab" onclick="switchTab('settings', this)"><span class="nav-ico">⚙️</span>تنظیمات</button>
                 <button class="nav-item" id="mtab-backup" role="tab" onclick="switchTab('backup', this)"><span class="nav-ico">💾</span>پشتیبان‌گیری</button>
                 <button class="nav-item" id="mtab-logs" role="tab" onclick="switchTab('logs', this)"><span class="nav-ico">📈</span>لاگ‌ها</button>
@@ -1150,6 +1150,7 @@
                                         </button>
                                     </td>
                                     <td style="text-align: center;">
+                                        <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px;" onclick="openSourceEditModal({{ src.id }}, {{ src.name | tojson }}, {{ src.url | tojson }}, {{ src.priority }})">✏️</button>
                                         <button class="btn btn-danger" style="padding: 4px 8px; font-size: 11px;" onclick="deleteSource({{ src.id }})">🗑️</button>
                                     </td>
                                 </tr>
@@ -1402,6 +1403,35 @@ hysteria2://..." required></textarea>
         </div>
     </div>
 
+    <!-- Auto source edit modal -->
+    <div class="modal-overlay" id="source-modal" onclick="if(event.target===this)closeSourceEditModal()">
+        <div class="modal-box">
+            <div class="modal-head">
+                <h3>ویرایش منبع</h3>
+                <button class="modal-close" onclick="closeSourceEditModal()" aria-label="بستن">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="source-edit-id">
+                <div class="form-group">
+                    <label for="source-edit-name">نام منبع</label>
+                    <input type="text" id="source-edit-name" placeholder="مثال: منبع کمکی">
+                </div>
+                <div class="form-group">
+                    <label for="source-edit-url">آدرس URL سابسکریپشن</label>
+                    <input type="url" id="source-edit-url" placeholder="https://..." style="direction: ltr; text-align: left;">
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label for="source-edit-priority">اولویت</label>
+                    <input type="number" id="source-edit-priority" min="1" max="1000">
+                </div>
+            </div>
+            <div class="modal-foot">
+                <button class="btn btn-primary" onclick="saveSourceEdit()">💾 ذخیره</button>
+                <button class="btn btn-secondary" onclick="closeSourceEditModal()">انصراف</button>
+            </div>
+        </div>
+    </div>
+
     <!-- User history / devices modal -->
     <div class="modal-overlay" id="history-modal" onclick="if(event.target===this)closeUserHistory()">
         <div class="modal-box" style="max-width: 640px;">
@@ -1538,7 +1568,7 @@ hysteria2://..." required></textarea>
         // ── Main tab navigation ──────────────────────────────────
         const TAB_TITLES = {
             dashboard: '📊 داشبورد', users: '👥 کاربران', configs: '📁 کانفیگ‌ها',
-            automation: '🤖 اسکن خودکار', settings: '⚙️ تنظیمات', backup: '💾 پشتیبان‌گیری', logs: '📈 لاگ‌ها'
+            automation: '🤖 ساب‌های منبع', settings: '⚙️ تنظیمات', backup: '💾 پشتیبان‌گیری', logs: '📈 لاگ‌ها'
         };
 
         function switchTab(name, btn) {
@@ -2712,6 +2742,49 @@ hysteria2://..." required></textarea>
                 } else {
                     showAlert(data.message, 'error');
                 }
+            });
+        }
+
+        function openSourceEditModal(id, name, url, priority) {
+            document.getElementById('source-edit-id').value = id;
+            document.getElementById('source-edit-name').value = name;
+            document.getElementById('source-edit-url').value = url;
+            document.getElementById('source-edit-priority').value = priority;
+            document.getElementById('source-modal').classList.add('show');
+        }
+
+        function closeSourceEditModal() {
+            document.getElementById('source-modal').classList.remove('show');
+        }
+
+        function saveSourceEdit() {
+            const id = document.getElementById('source-edit-id').value;
+            const name = document.getElementById('source-edit-name').value.trim();
+            const url = document.getElementById('source-edit-url').value.trim();
+            const priority = document.getElementById('source-edit-priority').value;
+
+            if (!name || !url) {
+                showAlert('نام و آدرس منبع الزامی است', 'error');
+                return;
+            }
+
+            fetch(`/adminpanel/auto_sources/edit/${id}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: name, url: url, priority: priority })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert(data.message, 'success');
+                    closeSourceEditModal();
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    showAlert(data.message, 'error');
+                }
+            })
+            .catch(err => {
+                showAlert('خطا در ویرایش منبع: ' + err, 'error');
             });
         }
 

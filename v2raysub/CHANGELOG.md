@@ -12,6 +12,20 @@
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-07-25
+
+### Added
+- **امکان ویرایش منبع اسکن خودکار.** پیش از این برای تغییر نام یا آدرس یک منبع
+  باید حذف و دوباره اضافه می‌شد (اولویت استثنا بود چون فیلد قابل‌ویرایش این‌لاین
+  داشت). حالا هر ردیف جدول «منابع خودکار» یک دکمه‌ی ویرایش (✏️) دارد که مودالی
+  با نام/آدرس/اولویت فعلی باز می‌کند؛ ذخیره به اندپوینت جدید
+  `POST /adminpanel/auto_sources/edit/<id>` می‌رود که مثل افزودن منبع، آدرس را
+  با `validate_source_url` بررسی می‌کند.
+
+### Changed
+- **تب «اسکن خودکار» در پنل مدیریت به «ساب‌های منبع» تغییر نام داد** تا با محتوای
+  واقعی تب (مدیریت لینک‌های ساب منبع) هم‌خوان‌تر باشد.
+
 ## [1.10.1] - 2026-07-25
 
 ### Fixed
@@ -236,7 +250,8 @@
 - نمایش نسخه در پایان نصب/آپدیت: «Version X.Y.Z installed/updated successfully».
 - مدیریت کاربران (user-management) و محدودیت تعداد دستگاه (device-limit).
 
-[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.10.1...HEAD
+[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.11.0...HEAD
+[1.11.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.10.1...v1.11.0
 [1.10.1]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.10.0...v1.10.1
 [1.10.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.8.0...v1.9.0
