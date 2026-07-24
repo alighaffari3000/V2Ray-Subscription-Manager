@@ -12,6 +12,20 @@
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-07-25
+
+### Added
+- **تست دستی هر منبع خودکار.** هر ردیف تب «ساب‌های منبع» یک دکمه‌ی 🧪 گرفته که
+  فقط همان منبع را (نه کل منابع فعال) با موتور V2RayDAR اسکن می‌کند. `run_scan`
+  در `services/automation_service.py` یک پارامتر اختیاری `source_id` گرفته که
+  کوئری `auto_sources` را به همان یک ردیف محدود می‌کند؛ بقیه‌ی مسیر (فچ/پارس/پروب
+  توسط باینری v2raydar، سپس `ConfigImporter.import_discovered_configs`) بدون
+  تغییر باقی مانده، پس هر کانفیگ سالمی که پیدا شود همان‌طور که در اسکن خودکار
+  انجام می‌شود به‌صورت خودکار به لیست کانفیگ‌های فعال اضافه می‌شود و `last_scan`/
+  `last_error` فقط همان منبع به‌روزرسانی می‌شود. اندپوینت جدید
+  `POST /adminpanel/auto_sources/test/<id>` اسکن را در یک ترد پس‌زمینه
+  (مشابه دکمه‌ی «اجرای اسکن خودکار») اجرا می‌کند.
+
 ## [1.11.1] - 2026-07-25
 
 ### Fixed
@@ -261,7 +275,8 @@
 - نمایش نسخه در پایان نصب/آپدیت: «Version X.Y.Z installed/updated successfully».
 - مدیریت کاربران (user-management) و محدودیت تعداد دستگاه (device-limit).
 
-[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.11.1...HEAD
+[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.12.0...HEAD
+[1.12.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.11.1...v1.12.0
 [1.11.1]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.11.0...v1.11.1
 [1.11.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.10.1...v1.11.0
 [1.10.1]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.10.0...v1.10.1

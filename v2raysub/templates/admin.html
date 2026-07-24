@@ -1150,6 +1150,7 @@
                                         </button>
                                     </td>
                                     <td style="text-align: center;">
+                                        <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px;" onclick="testSource({{ src.id }}, this)" title="تست دستی این منبع — کانفیگ‌های سالم خودکار به لیست فعال اضافه می‌شوند">🧪</button>
                                         <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px;" data-source-id="{{ src.id }}" data-source-name="{{ src.name }}" data-source-url="{{ src.url }}" data-source-priority="{{ src.priority }}" onclick="openSourceEditModal(this)">✏️</button>
                                         <button class="btn btn-danger" style="padding: 4px 8px; font-size: 11px;" onclick="deleteSource({{ src.id }})">🗑️</button>
                                     </td>
@@ -2742,6 +2743,31 @@ hysteria2://..." required></textarea>
                 } else {
                     showAlert(data.message, 'error');
                 }
+            });
+        }
+
+        function testSource(id, btn) {
+            btn.disabled = true;
+            const original = btn.textContent;
+            btn.textContent = '⏳';
+            showAlert('تست منبع در پس‌زمینه آغاز شد...', 'info');
+
+            fetch(`/adminpanel/auto_sources/test/${id}`, { method: 'POST' })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert(data.message, 'success');
+                    setTimeout(() => location.reload(), 6000);
+                } else {
+                    showAlert(data.message, 'error');
+                    btn.disabled = false;
+                    btn.textContent = original;
+                }
+            })
+            .catch(err => {
+                showAlert('خطا در اجرای تست: ' + err, 'error');
+                btn.disabled = false;
+                btn.textContent = original;
             });
         }
 

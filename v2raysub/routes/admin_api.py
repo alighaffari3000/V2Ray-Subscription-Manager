@@ -470,6 +470,37 @@ def update_auto_source_priority(source_id):
         db.close()
 
 
+@admin_api_bp.route('/adminpanel/auto_sources/test/<int:source_id>', methods=['POST'])
+def test_auto_source(source_id):
+    """Run a discovery scan scoped to a single source; healthy configs it finds
+    are imported into the active config list the same way a full scan does."""
+    err = _require_login()
+    if err:
+        return err
+
+    from database import get_db
+    from services.automation_service import AutomationService, is_scan_active
+    import threading
+
+    db = get_db()
+    row = db.execute('SELECT id FROM auto_sources WHERE id = ?', (source_id,)).fetchone()
+    db.close()
+    if not row:
+        return jsonify({'success': False, 'message': 'منبع مورد نظر یافت نشد'})
+
+    if is_scan_active():
+        return jsonify({'success': False, 'message': 'یک اسکن دیگر در حال حاضر در پس‌زمینه در حال اجرا است'})
+
+    threading.Thread(
+        target=AutomationService.run_scan,
+        args=('discovery',),
+        kwargs={'source_id': source_id},
+        daemon=True
+    ).start()
+
+    return jsonify({'success': True, 'message': 'تست منبع در پس‌زمینه آغاز شد؛ کانفیگ‌های سالم به‌صورت خودکار به لیست فعال اضافه می‌شوند'})
+
+
 # ─── Automation Settings endpoint ────────────────────────────
 
 @admin_api_bp.route('/adminpanel/settings/automation', methods=['POST'])

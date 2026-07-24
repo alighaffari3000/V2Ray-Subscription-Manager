@@ -1059,7 +1059,7 @@ class AutomationService:
                 pass
 
     @staticmethod
-    def run_scan(mode):
+    def run_scan(mode, source_id=None):
         if not SCAN_LOCK.acquire(blocking=False):
             print("Scan skipped: another automation run is already active.")
             return False, "Another scan is already in progress."
@@ -1109,15 +1109,22 @@ class AutomationService:
                     MetricsRecorder.update_scan_history(scan_id, 0, {}, 'skipped', error_msg=msg)
                     return True, msg
                     
-                # Fetch sources
+                # Fetch sources — a single source when this run was triggered by
+                # the per-source "test now" button, otherwise every enabled one.
                 db = get_db()
-                source_rows = db.execute(
-                    'SELECT name, url, priority FROM auto_sources WHERE is_enabled=1'
-                ).fetchall()
+                if source_id is not None:
+                    source_rows = db.execute(
+                        'SELECT name, url, priority FROM auto_sources WHERE id = ?', (source_id,)
+                    ).fetchall()
+                else:
+                    source_rows = db.execute(
+                        'SELECT name, url, priority FROM auto_sources WHERE is_enabled=1'
+                    ).fetchall()
                 db.close()
-                
+
                 if not source_rows:
-                    msg = "Discovery skipped: no enabled sources in database."
+                    msg = ("Discovery skipped: source not found." if source_id is not None
+                           else "Discovery skipped: no enabled sources in database.")
                     print(f"[{job_id}] {msg}")
                     MetricsRecorder.update_scan_history(scan_id, 0, {}, 'skipped', error_msg=msg)
                     return True, msg
