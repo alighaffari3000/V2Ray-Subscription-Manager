@@ -196,6 +196,14 @@ def init_db():
     _add_column_if_missing(db, 'scan_history', 'duplicate_configs', 'INTEGER DEFAULT 0')
     _add_column_if_missing(db, 'scan_history', 'scan_duration_ms', 'INTEGER DEFAULT 0')
 
+    # Raw number of configs the subscription link itself contains, refreshed on
+    # each scan by fetching+counting the URL directly. This is independent of how
+    # many configs actually get imported (early-stop samples only a handful, and
+    # the active pool is capped), so it answers "how big is this source" honestly.
+    # total_configs_at records when it was last measured. NULL = never scanned yet.
+    _add_column_if_missing(db, 'auto_sources', 'total_configs', 'INTEGER')
+    _add_column_if_missing(db, 'auto_sources', 'total_configs_at', 'TIMESTAMP')
+
     # Migrate legacy shared paths into unlimited (deletable) users, then drop the
     # subscription_paths rows so the "public link" concept no longer exists and a
     # deleted user can't be resurrected by the row. Fresh installs seed nothing,

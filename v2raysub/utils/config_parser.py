@@ -18,6 +18,30 @@ def safe_b64decode(b64_str):
         print(f"Error in safe_b64decode: {e}")
         return None
 
+# اسکیماهای کانفیگ شناخته‌شده در ابتدای هر خط سابسکریپشن.
+CONFIG_SCHEME_RE = re.compile(
+    r'^(?:vmess|vless|trojan|ss|ssr|hysteria2?|hy2|tuic)://',
+    re.IGNORECASE,
+)
+
+def count_configs_in_text(raw_text):
+    """تعداد کانفیگ‌های داخل بدنه‌ی خام یک سابسکریپشن را می‌شمارد.
+
+    بدنه ممکن است کل‌بدنه base64 باشد یا متن خام خط‌به‌خط. اگر متن مستقیم شامل
+    هیچ URI کانفیگی نبود، یک‌بار کل بدنه را base64-decode می‌کنیم. سپس خطوطی که با
+    یک اسکیمای کانفیگ شناخته‌شده شروع می‌شوند شمرده می‌شوند. (بدون تست سلامت —
+    فقط شمارش خام «چند کانفیگ در این لینک هست».)
+    """
+    if not raw_text:
+        return 0
+    text = raw_text.strip()
+    # اگر بدنه base64 است و هیچ URI مستقیمی ندارد، یک‌بار decode کن.
+    if not CONFIG_SCHEME_RE.search(text):
+        decoded = safe_b64decode(text)
+        if decoded and CONFIG_SCHEME_RE.search(decoded):
+            text = decoded
+    return sum(1 for line in text.splitlines() if CONFIG_SCHEME_RE.match(line.strip()))
+
 def extract_flags(text):
     """استخراج تمامی پرچم‌های کشورها و مناطق موجود در متن"""
     # الگوی پرچم‌های دو حرفی (مثل 🇩🇪) و پرچم‌های منطقه‌ای پیچیده (مثل انگلستان 🏴󠁧󠁢󠁥󠁮󠁧󠁿)

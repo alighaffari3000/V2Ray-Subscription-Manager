@@ -11,7 +11,7 @@ import shutil
 import atexit
 import uuid
 from database import get_db, get_setting
-from utils.config_parser import detect_config_type, get_config_identity
+from utils.config_parser import detect_config_type, get_config_identity, count_configs_in_text
 import utils.constants as constants
 from utils.process_lock import InterProcessLock
 
@@ -26,6 +26,26 @@ SCAN_FILE_LOCK = InterProcessLock(constants.SCAN_LOCK_FILE)
 # per-config budget keeps the request from outliving the browser waiting on it.
 MANUAL_TEST_MAX_CONFIGS = 50
 MANUAL_TEST_SECONDS_PER_CONFIG = 20
+
+# Timeout for the lightweight "how many configs does this link contain" fetch.
+# This is just a download + decode + line-count, no probing, so it's short.
+SOURCE_COUNT_FETCH_TIMEOUT = 20
+
+
+def fetch_source_config_count(url, timeout=SOURCE_COUNT_FETCH_TIMEOUT):
+    """لینک سابسکریپشن را دانلود و تعداد خام کانفیگ‌هایش را می‌شمارد.
+
+    Best-effort: در صورت هر خطایی (تایم‌اوت، خطای شبکه، بدنه‌ی نامعتبر) None
+    برمی‌گرداند تا فراخواننده مقدار قبلی را دست‌نخورده نگه دارد.
+    """
+    import requests
+    try:
+        resp = requests.get(url, timeout=timeout, headers={'User-Agent': 'Mozilla/5.0'})
+        resp.raise_for_status()
+        return count_configs_in_text(resp.text)
+    except Exception as e:
+        print(f"Source config-count fetch failed for {url}: {e}")
+        return None
 
 
 def is_scan_active():
@@ -1136,7 +1156,23 @@ class AutomationService:
                         "url": s['url'],
                         "priority": s['priority']
                     })
-                    
+
+                # Refresh each source's raw config count (how many configs the
+                # subscription link actually holds). The engine's early-stop only
+                # samples a handful, so we fetch+count the URL directly here. This
+                # is best-effort — a failed fetch leaves the previous value intact,
+                # and it never aborts the scan itself.
+                count_db = get_db()
+                for s in sources_list:
+                    raw_count = fetch_source_config_count(s['url'])
+                    if raw_count is not None:
+                        count_db.execute(
+                            'UPDATE auto_sources SET total_configs = ?, total_configs_at = ? WHERE url = ?',
+                            (raw_count, started_at_str, s['url'])
+                        )
+                count_db.commit()
+                count_db.close()
+
                 scan_timeout = get_validated_timeout('scan_timeout', 1200)
 
                 input_data = {

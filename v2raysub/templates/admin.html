@@ -1100,7 +1100,7 @@
                                 <th>نام منبع</th>
                                 <th>آدرس URL</th>
                                 <th style="text-align: center;" width="90">اولویت</th>
-                                <th style="text-align: center;" width="90" title="کل کانفیگ‌هایی که تا کنون از این منبع استخراج شده‌اند (فعال + خاموش + حذف‌شده)">کل کانفیگ</th>
+                                <th style="text-align: center;" width="90" title="تعداد کل کانفیگ‌هایی که خودِ لینک این منبع دارد (در آخرین اسکن شمرده شده) — مستقل از تعدادی که وارد لیست فعال شده">کل کانفیگ</th>
                                 <th style="text-align: center;" width="110" title="تعداد کانفیگ‌های این منبع که هم‌اکنون در لیست کانفیگ‌های فعال هستند">کانفیگ فعال</th>
                                 <th style="text-align: center;" width="140">وضعیت اسکن</th>
                                 <th style="text-align: center;" width="90">فعال</th>
@@ -1119,9 +1119,12 @@
                                     {% set counts = source_config_counts.get(src.name, {}) %}
                                     {% set enabled_configs = counts.get('enabled', 0) %}
                                     {% set active_configs = counts.get('active', 0) %}
-                                    {% set total_configs = counts.get('total', 0) %}
                                     <td style="text-align: center;">
-                                        <strong style="font-size: 15px;">{{ total_configs }}</strong>
+                                        {% if src.total_configs is not none %}
+                                            <strong style="font-size: 15px;">{{ src.total_configs }}</strong>
+                                        {% else %}
+                                            <span style="opacity: 0.45; font-size: 12px;" title="هنوز اسکن نشده؛ بعد از اولین اسکن این منبع پر می‌شود">—</span>
+                                        {% endif %}
                                     </td>
                                     <td style="text-align: center;">
                                         {% if enabled_configs > 0 %}

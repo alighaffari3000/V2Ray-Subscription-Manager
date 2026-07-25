@@ -87,28 +87,22 @@ def admin():
     auto_sources = db.execute('SELECT * FROM auto_sources ORDER BY priority DESC, created_at ASC').fetchall()
     scan_history = db.execute('SELECT * FROM scan_history ORDER BY started_at DESC LIMIT 5').fetchall()
 
-    # Per-source config counts, so a source that never yields anything is visible
-    # and can be dropped. configs.source holds the auto_sources.name written at
-    # import time; deleted configs are soft-deleted (status='deleted') and keep
-    # their source, so they still count toward the source's overall total.
-    #   total   = every config this source ever produced that still lives in the
-    #             table (active + soft-deleted) -> the "کل کانفیگ" column.
-    #   active  = configs currently in the active list (enabled + disabled).
+    # Per-source counts of the LOCAL active pool, so a source that never yields
+    # anything is visible and can be dropped. configs.source holds the
+    # auto_sources.name written at import time.
+    #   active  = configs currently in the active list (enabled + disabled) ->
+    #             drives the "خاموش" badge.
     #   enabled = active configs that are switched on -> the "کانفیگ فعال" column.
-    # "خاموش" is derived in the template as active - enabled.
+    # The "کل کانفیگ" column comes from auto_sources.total_configs instead (the
+    # raw size of the subscription link, refreshed on each scan) — not from here.
     source_config_counts = {
-        row['source']: {
-            'total': row['total'],
-            'active': row['active'],
-            'enabled': row['enabled'],
-        }
+        row['source']: {'active': row['active'], 'enabled': row['enabled']}
         for row in db.execute(
             """SELECT source,
-                      COUNT(*) AS total,
-                      SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active,
-                      SUM(CASE WHEN status = 'active' AND is_enabled = 1 THEN 1 ELSE 0 END) AS enabled
+                      COUNT(*) AS active,
+                      SUM(CASE WHEN is_enabled = 1 THEN 1 ELSE 0 END) AS enabled
                  FROM configs
-                WHERE source IS NOT NULL AND source != ''
+                WHERE status = 'active' AND source IS NOT NULL AND source != ''
                 GROUP BY source"""
         ).fetchall()
     }
