@@ -127,6 +127,9 @@ def admin():
     device_grace_hours = get_setting('device_grace_hours', '0')
     profile_update_interval_hours = get_setting('profile_update_interval_hours', '6')
 
+    # Machine API token for an external sales bot (empty = API disabled).
+    api_token = get_setting('api_token', '')
+
     # Backup Settings
     backup_scheduled_enabled = get_setting('backup_scheduled_enabled', '0')
     backup_interval = get_setting('backup_interval', 'daily')
@@ -171,6 +174,7 @@ def admin():
         device_window_days=device_window_days,
         device_grace_hours=device_grace_hours,
         profile_update_interval_hours=profile_update_interval_hours,
+        api_token=api_token,
         backup_scheduled_enabled=backup_scheduled_enabled,
         backup_interval=backup_interval,
         backup_scheduled_type=backup_scheduled_type,

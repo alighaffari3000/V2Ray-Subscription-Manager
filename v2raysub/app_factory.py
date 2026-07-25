@@ -10,6 +10,7 @@ from extensions import limiter
 from routes.client import client_bp
 from routes.admin_pages import admin_pages_bp
 from routes.admin_api import admin_api_bp
+from routes.machine_api import machine_api_bp
 
 
 def create_app(testing=False):
@@ -59,11 +60,15 @@ def create_app(testing=False):
     # (e.g. the login route) still apply.
     limiter.exempt(admin_pages_bp)
     limiter.exempt(admin_api_bp)
+    # Machine API is authenticated by a bearer token, not by the login session;
+    # exempt it from the default per-IP limits so a busy bot isn't throttled.
+    limiter.exempt(machine_api_bp)
 
     # Register blueprints
     app.register_blueprint(client_bp)
     app.register_blueprint(admin_pages_bp)
     app.register_blueprint(admin_api_bp)
+    app.register_blueprint(machine_api_bp)
 
     # Root route – redirect to admin panel
     @app.route('/')

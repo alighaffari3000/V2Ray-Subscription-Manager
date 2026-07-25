@@ -1369,5 +1369,122 @@ class TestManualConfigTest(IntegrationTestBase):
         self.assertEqual(resp.status_code, 401)
 
 
+class TestMachineApi(IntegrationTestBase):
+    """Token-authenticated /api/v1 machine API used by an external sales bot."""
+
+    _TOKEN = 'test-machine-token-abc123'
+
+    def _set_token(self, value=_TOKEN):
+        from database import set_setting
+        set_setting('api_token', value)
+
+    def _auth(self, token=_TOKEN):
+        return {'Authorization': f'Bearer {token}'}
+
+    def _create(self, name='ربات‌ساز', days=30, max_devices=2):
+        return self.client.post(
+            '/api/v1/subs',
+            data=json.dumps({'name': name, 'duration_days': days, 'max_devices': max_devices}),
+            content_type='application/json', headers=self._auth())
+
+    # ── auth ──
+    def test_disabled_when_no_token(self):
+        # Fresh install: api_token is '' -> API disabled (503), even with a header.
+        resp = self.client.get('/api/v1/health', headers=self._auth('anything'))
+        self.assertEqual(resp.status_code, 503)
+
+    def test_wrong_token_rejected(self):
+        self._set_token()
+        resp = self.client.get('/api/v1/health', headers=self._auth('wrong-token'))
+        self.assertEqual(resp.status_code, 401)
+
+    def test_missing_header_rejected(self):
+        self._set_token()
+        resp = self.client.get('/api/v1/health')
+        self.assertEqual(resp.status_code, 401)
+
+    def test_health_ok_with_token(self):
+        self._set_token()
+        resp = self.client.get('/api/v1/health', headers=self._auth())
+        self.assertEqual(resp.status_code, 200)
+        body = json.loads(resp.data)
+        self.assertTrue(body['ok'])
+        self.assertEqual(body['service'], 'v2raysub')
+
+    # ── create ──
+    def test_create_returns_sub_url(self):
+        self._set_token()
+        resp = self._create()
+        self.assertEqual(resp.status_code, 201)
+        body = json.loads(resp.data)
+        self.assertTrue(body['success'])
+        sub = body['subscription']
+        self.assertIn('/sub/', sub['sub_url'])
+        self.assertEqual(sub['duration_days'], 30)
+        self.assertEqual(sub['max_devices'], 2)
+        self.assertEqual(sub['effective_status'], 'ACTIVE')
+
+    def test_create_requires_name(self):
+        self._set_token()
+        resp = self.client.post('/api/v1/subs', data=json.dumps({'duration_days': 10}),
+                                content_type='application/json', headers=self._auth())
+        self.assertEqual(resp.status_code, 400)
+
+    # ── read ──
+    def test_get_sub(self):
+        self._set_token()
+        sub_id = json.loads(self._create().data)['subscription']['id']
+        resp = self.client.get(f'/api/v1/subs/{sub_id}', headers=self._auth())
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(json.loads(resp.data)['subscription']['id'], sub_id)
+
+    def test_get_missing_is_404(self):
+        self._set_token()
+        resp = self.client.get('/api/v1/subs/999999', headers=self._auth())
+        self.assertEqual(resp.status_code, 404)
+
+    # ── update (extend) ──
+    def test_patch_extends_duration(self):
+        self._set_token()
+        sub_id = json.loads(self._create(days=30).data)['subscription']['id']
+        resp = self.client.patch(f'/api/v1/subs/{sub_id}',
+                                 data=json.dumps({'duration_days': 60}),
+                                 content_type='application/json', headers=self._auth())
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(json.loads(resp.data)['subscription']['duration_days'], 60)
+
+    # ── transitions ──
+    def test_pause_and_resume(self):
+        self._set_token()
+        sub_id = json.loads(self._create().data)['subscription']['id']
+        r1 = self.client.post(f'/api/v1/subs/{sub_id}/pause', headers=self._auth())
+        self.assertEqual(json.loads(r1.data)['subscription']['status'], 'PAUSED')
+        r2 = self.client.post(f'/api/v1/subs/{sub_id}/resume', headers=self._auth())
+        self.assertEqual(json.loads(r2.data)['subscription']['status'], 'ACTIVE')
+
+    def test_toggle_disable(self):
+        self._set_token()
+        sub_id = json.loads(self._create().data)['subscription']['id']
+        resp = self.client.post(f'/api/v1/subs/{sub_id}/toggle',
+                                data=json.dumps({'enabled': False}),
+                                content_type='application/json', headers=self._auth())
+        self.assertEqual(json.loads(resp.data)['subscription']['status'], 'DISABLED')
+
+    # ── delete ──
+    def test_delete_sub(self):
+        self._set_token()
+        sub_id = json.loads(self._create().data)['subscription']['id']
+        resp = self.client.delete(f'/api/v1/subs/{sub_id}', headers=self._auth())
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(json.loads(resp.data)['success'])
+        # Gone now.
+        self.assertEqual(self.client.get(f'/api/v1/subs/{sub_id}',
+                                         headers=self._auth()).status_code, 404)
+
+    def test_token_endpoint_requires_login(self):
+        resp = self.client.post('/adminpanel/api/api_token/generate')
+        self.assertEqual(resp.status_code, 401)
+
+
 if __name__ == '__main__':
     unittest.main()

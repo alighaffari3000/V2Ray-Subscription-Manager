@@ -12,6 +12,18 @@
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-07-25
+
+### Added
+- **API ماشینی توکن‌دار (`/api/v1`) برای کلاینت‌های خارجی (مثل بات فروش).** یک لایه‌ی REST مستقل
+  از سشن پنل که با هدر `Authorization: Bearer <token>` احراز می‌شود و مستقیماً روی
+  `user_service` می‌نشیند: ساخت اشتراک (`POST /api/v1/subs` → برگرداندن `sub_url`)،
+  دریافت وضعیت (`GET`)، تمدید/تغییر دستگاه (`PATCH`)، `pause`/`resume`/`reset`/`toggle`،
+  و حذف (`DELETE`). تا وقتی توکنی ساخته نشده باشد، کل API غیرفعال است (۵۰۳).
+- **مدیریت توکن API در تب تنظیمات.** کارت جدید برای تولید/تعویض، نمایش/کپی و حذف توکن
+  به‌همراه endpointهای `GET/POST /adminpanel/api/api_token[...]`. ساختِ توکن جدید،
+  توکن قبلی را فوراً باطل می‌کند.
+
 ## [1.16.0] - 2026-07-25
 
 ### Added
@@ -362,7 +374,8 @@
 - نمایش نسخه در پایان نصب/آپدیت: «Version X.Y.Z installed/updated successfully».
 - مدیریت کاربران (user-management) و محدودیت تعداد دستگاه (device-limit).
 
-[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.13.0...HEAD
+[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.17.0...HEAD
+[1.17.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.16.0...v1.17.0
 [1.13.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.11.1...v1.12.0
 [1.11.1]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.11.0...v1.11.1

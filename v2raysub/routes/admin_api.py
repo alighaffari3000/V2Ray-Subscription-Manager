@@ -583,6 +583,41 @@ def _user_link(user):
     return user
 
 
+# ─── Machine-API token management (for external sales bots) ──────
+# The token itself authenticates the /api/v1 machine API (see routes/machine_api.py).
+# These session-authed endpoints let an admin view, (re)generate, or revoke it
+# from the Settings tab. Regenerating immediately invalidates the previous token.
+
+@admin_api_bp.route('/adminpanel/api/api_token', methods=['GET'])
+def get_api_token():
+    err = _require_login()
+    if err:
+        return err
+    token = get_setting('api_token', '')
+    return jsonify({'success': True, 'token': token, 'configured': bool(token)})
+
+
+@admin_api_bp.route('/adminpanel/api/api_token/generate', methods=['POST'])
+def generate_api_token():
+    err = _require_login()
+    if err:
+        return err
+    import secrets
+    token = secrets.token_urlsafe(32)
+    set_setting('api_token', token)
+    return jsonify({'success': True, 'token': token,
+                    'message': 'توکن جدید ساخته شد. توکن قبلی دیگر معتبر نیست.'})
+
+
+@admin_api_bp.route('/adminpanel/api/api_token/revoke', methods=['POST'])
+def revoke_api_token():
+    err = _require_login()
+    if err:
+        return err
+    set_setting('api_token', '')
+    return jsonify({'success': True, 'message': 'توکن حذف شد؛ API بات غیرفعال شد.'})
+
+
 @admin_api_bp.route('/adminpanel/api/users', methods=['GET'])
 def list_users():
     err = _require_login()

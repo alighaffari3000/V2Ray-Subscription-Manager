@@ -772,6 +772,45 @@
                 <button type="submit" class="btn btn-primary">💾 ذخیره تنظیمات اتوماسیون</button>
             </form>
         </div>
+
+        <div class="card">
+            <h2 class="card-title">🤖 API بات فروش</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 16px; line-height: 1.9;">
+                این توکن به بات فروش اجازه می‌دهد از راه دور اشتراک بسازد و مدیریت کند.
+                آن را محرمانه نگه دارید. با ساختِ توکن جدید، توکن قبلی فوراً از کار می‌افتد.
+            </p>
+
+            <div class="form-group">
+                <label>آدرس پایه‌ی API</label>
+                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                    <input type="text" id="api-base-url" readonly value="{{ base_url }}api/v1"
+                           style="flex:1; min-width:220px;">
+                    <button type="button" class="btn btn-secondary"
+                            onclick="copyText(document.getElementById('api-base-url').value)">📋 کپی</button>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>توکن API</label>
+                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                    <input type="password" id="api-token-input" readonly
+                           value="{{ api_token }}"
+                           placeholder="هنوز توکنی ساخته نشده است"
+                           style="flex:1; min-width:220px; font-family:monospace;">
+                    <button type="button" class="btn btn-secondary" onclick="toggleApiToken()">👁 نمایش</button>
+                    <button type="button" class="btn btn-secondary"
+                            onclick="copyText(document.getElementById('api-token-input').value)">📋 کپی</button>
+                </div>
+                <small id="api-token-status" style="color: var(--text-secondary); display:block; margin-top:8px;">
+                    {% if api_token %}وضعیت: فعال ✅{% else %}وضعیت: غیرفعال (بدون توکن){% endif %}
+                </small>
+            </div>
+
+            <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:6px;">
+                <button type="button" class="btn btn-primary" onclick="generateApiToken()">🔑 تولید / تعویض توکن</button>
+                <button type="button" class="btn btn-danger" onclick="revokeApiToken()">🗑 حذف توکن</button>
+            </div>
+        </div>
         </div><!-- /panel-settings -->
 
         <!-- ═══ پشتیبان‌گیری و بازیابی داده‌ها ═══ -->
@@ -2908,6 +2947,50 @@ hysteria2://..." required></textarea>
         function copyText(t) {
             navigator.clipboard.writeText(t).then(() => showAlert('کپی شد', 'success'))
                 .catch(() => showAlert('کپی نشد', 'error'));
+        }
+
+        // ─── external bot API token ──────────────────────────────
+        function toggleApiToken() {
+            const el = document.getElementById('api-token-input');
+            el.type = el.type === 'password' ? 'text' : 'password';
+        }
+
+        async function generateApiToken() {
+            if (!confirm('یک توکن جدید ساخته می‌شود و توکن فعلی از کار می‌افتد. ادامه می‌دهید؟')) return;
+            try {
+                const res = await fetch('/adminpanel/api/api_token/generate', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    const el = document.getElementById('api-token-input');
+                    el.value = data.token;
+                    el.type = 'text';
+                    document.getElementById('api-token-status').textContent = 'وضعیت: فعال ✅';
+                    showToast(data.message || 'توکن جدید ساخته شد', 'success');
+                } else {
+                    showToast(data.message || 'خطا در ساخت توکن', 'error');
+                }
+            } catch (e) {
+                showToast('خطا در ارتباط با سرور', 'error');
+            }
+        }
+
+        async function revokeApiToken() {
+            if (!confirm('با حذف توکن، API بات غیرفعال می‌شود. مطمئن هستید؟')) return;
+            try {
+                const res = await fetch('/adminpanel/api/api_token/revoke', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    const el = document.getElementById('api-token-input');
+                    el.value = '';
+                    el.type = 'password';
+                    document.getElementById('api-token-status').textContent = 'وضعیت: غیرفعال (بدون توکن)';
+                    showToast(data.message || 'توکن حذف شد', 'success');
+                } else {
+                    showToast(data.message || 'خطا در حذف توکن', 'error');
+                }
+            } catch (e) {
+                showToast('خطا در ارتباط با سرور', 'error');
+            }
         }
 
         function updateUsersCount(n) {

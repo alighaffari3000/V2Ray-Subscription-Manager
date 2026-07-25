@@ -264,6 +264,11 @@ def init_db():
     # forever). subscription_logs grows one row per hit and was unbounded before.
     db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('logs_retention_days', '90')")
 
+    # Machine API token for external clients (e.g. a sales bot). Empty by default
+    # = the /api/v1 machine API is disabled until an admin generates a token from
+    # the Settings tab. See routes/machine_api.py.
+    db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('api_token', '')")
+
     # Indexes for the hot query paths. subscription_logs is scanned by
     # request_path (per-user history) and by accessed_at (dashboard "today"
     # counters and retention pruning); configs is filtered by status/enabled.
