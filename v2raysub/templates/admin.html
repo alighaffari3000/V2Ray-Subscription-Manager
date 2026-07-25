@@ -810,6 +810,22 @@
                 <button type="button" class="btn btn-primary" onclick="generateApiToken()">🔑 تولید / تعویض توکن</button>
                 <button type="button" class="btn btn-danger" onclick="revokeApiToken()">🗑 حذف توکن</button>
             </div>
+
+            <div class="form-group" style="border-top: 1px solid var(--border-color); padding-top: 18px; margin-top: 20px;">
+                <label for="public-base-url">آدرس عمومی پنل (اختیاری)</label>
+                <p style="color: var(--text-secondary); margin: 6px 0 12px; line-height: 1.9; font-size: 0.92em;">
+                    لینک اشتراکی که به مشتری داده می‌شود با این آدرس ساخته می‌شود. اگر خالی بماند،
+                    از آدرسِ همان درخواست استفاده می‌شود. وقتی لازم است پُرش کنی: اگر بات از آدرسی
+                    غیر از دامنه‌ی عمومی (مثلاً <code>127.0.0.1:5000</code>) به پنل وصل شود، بدون این
+                    تنظیم لینک‌های مشتری به همان آدرس داخلی اشاره می‌کنند و بی‌صدا خراب می‌شوند.
+                </p>
+                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                    <input type="text" id="public-base-url" value="{{ public_base_url }}"
+                           placeholder="https://example.com" dir="ltr"
+                           style="flex:1; min-width:220px;">
+                    <button type="button" class="btn btn-primary" onclick="savePublicBaseUrl()">💾 ذخیره</button>
+                </div>
+            </div>
         </div>
         </div><!-- /panel-settings -->
 
@@ -2969,6 +2985,22 @@ hysteria2://..." required></textarea>
                 } else {
                     showToast(data.message || 'خطا در ساخت توکن', 'error');
                 }
+            } catch (e) {
+                showToast('خطا در ارتباط با سرور', 'error');
+            }
+        }
+
+        async function savePublicBaseUrl() {
+            const value = document.getElementById('public-base-url').value.trim();
+            try {
+                const res = await fetch('/adminpanel/api/settings/public_base_url', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ public_base_url: value })
+                });
+                const data = await res.json();
+                showToast(data.message || (data.success ? 'ذخیره شد' : 'خطا در ذخیره'),
+                          data.success ? 'success' : 'error');
             } catch (e) {
                 showToast('خطا در ارتباط با سرور', 'error');
             }

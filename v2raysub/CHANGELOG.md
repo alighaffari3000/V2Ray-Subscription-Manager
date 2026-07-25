@@ -12,6 +12,32 @@
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-07-25
+
+### Added
+- **تمدید اشتراک (`POST /api/v1/subs/{id}/extend`).** روش درست تمدید: `{"days": N}`
+  را اضافه می‌کند. برخلاف `PATCH duration_days` — که مقدار کل را *تنظیم* می‌کند و
+  انقضا را به‌اندازه‌ی تفاوت جابجا می‌کند — این endpoint اشتراکِ منقضی‌شده را از
+  همین لحظه شروع می‌کند. پیش از این، تمدید ۳۰ روزه‌ی اشتراکی که ۱۰ روز قبل منقضی
+  شده بود فقط ۲۰ روز اعتبار می‌داد و مشتری روزهای خریداری‌شده را از دست می‌داد.
+  اشتراک فعال‌نشده فقط `duration_days` بزرگ‌تر می‌گیرد (شمارش همچنان از اولین اتصال
+  شروع می‌شود) و اشتراک نامحدود بی‌اثر می‌ماند. سرویسِ `extend_user()` در
+  `user_service` اضافه شد.
+- **مدیریت دستگاه از طریق API.** `GET /api/v1/subs/{id}/devices` (فهرست دستگاه‌ها،
+  سقف، و تعداد فعال)، `POST .../devices/reset` (آزادسازی همه‌ی اسلات‌ها) و
+  `DELETE .../devices/{device_id}` (حذف یک دستگاه) — تا پشتیبانیِ «به سقف دستگاه
+  خوردم / گوشی عوض کردم» بدون ورود به پنل وب حل شود.
+- **فهرست اشتراک‌ها (`GET /api/v1/subs`)** برای تطبیق داده‌های کلاینت با پنل و
+  تشخیص اشتراک‌هایی که در پنل حذف یا ویرایش شده‌اند.
+- **تنظیم «آدرس عمومی پنل» (`public_base_url`).** لینک اشتراک مشتری با این آدرس
+  ساخته می‌شود. اگر خالی باشد (پیش‌فرض و همه‌ی نصب‌های موجود) رفتار بدون تغییر است.
+  بدون این تنظیم، کلاینتی که پنل را روی آدرسی غیر از دامنه‌ی عمومی صدا می‌زند
+  (مثلاً `127.0.0.1:5000`) لینک‌هایی می‌سازد که به همان آدرس داخلی اشاره دارند و
+  برای مشتری بی‌صدا خراب‌اند. برای یکدستی، لینک‌های نمایش‌داده‌شده در پنل ادمین هم
+  از همین آدرس استفاده می‌کنند.
+- **مستندسازی API در README** با جدول endpointها، نمونه‌ی `curl` و هشدار
+  `extend` در برابر `PATCH`.
+
 ## [1.17.1] - 2026-07-25
 
 ### Fixed
@@ -385,7 +411,8 @@
 - نمایش نسخه در پایان نصب/آپدیت: «Version X.Y.Z installed/updated successfully».
 - مدیریت کاربران (user-management) و محدودیت تعداد دستگاه (device-limit).
 
-[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.17.1...HEAD
+[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.18.0...HEAD
+[1.18.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.17.1...v1.18.0
 [1.17.1]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.17.0...v1.17.1
 [1.17.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.16.0...v1.17.0
 [1.13.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.12.0...v1.13.0

@@ -28,6 +28,25 @@ def get_base_url(request):
     return request.host_url
 
 
+def get_public_base_url(request):
+    """Canonical customer-facing base URL for subscription links.
+
+    Prefers the ``public_base_url`` setting when an admin has set one, otherwise
+    falls back to the requesting host. The override matters because a
+    subscription link is handed to customers but is built while serving whoever
+    *asked* for it: an external client (e.g. a sales bot) calling the machine API
+    over ``http://127.0.0.1:5000`` would otherwise mint links pointing at
+    localhost — broken for every customer, and broken silently.
+
+    Empty setting (the default, and every existing install) = unchanged behaviour.
+    """
+    from database import get_setting  # local import: avoids an import cycle at module load
+    configured = (get_setting('public_base_url', '') or '').strip()
+    if not configured:
+        return get_base_url(request)
+    return configured if configured.endswith('/') else configured + '/'
+
+
 def network_key(ip):
     """Collapse an IP to its network block for device fingerprinting.
 

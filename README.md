@@ -85,11 +85,55 @@ For manual (non-scripted) installation, panel internals, and the full file map, 
 
 ---
 
+## 🔌 Machine API / API ماشینی
+
+The panel exposes an optional token-authenticated REST API so an external client — a Telegram sales bot, your own billing system, a script — can create and manage subscriptions without touching the web UI.
+
+پنل یک REST API اختیاری با احراز هویت توکنی دارد تا یک کلاینت بیرونی (بات فروش تلگرام، سیستم صورت‌حساب خودت، یا یک اسکریپت) بتواند بدون ورود به پنل، اشتراک بسازد و مدیریت کند.
+
+**It is disabled by default.** Generate a token from **Settings → 🤖 API بات فروش** in the panel; until you do, every endpoint returns `503`. Send it as `Authorization: Bearer <token>`.
+
+**به‌صورت پیش‌فرض غیرفعال است.** از تب **تنظیمات → 🤖 API بات فروش** یک توکن بساز؛ تا آن موقع همه‌ی endpointها `503` برمی‌گردانند.
+
+```bash
+# Create a 30-day subscription for up to 2 devices
+curl -X POST https://yourdomain.com/api/v1/subs \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"customer-42","duration_days":30,"max_devices":2}'
+# -> {"success":true,"subscription":{"id":7,"sub_url":"https://yourdomain.com/sub/aB3xK9..."}}
+```
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/v1/health` | Verify the token; returns the panel version |
+| `GET /api/v1/subs` | List every subscription (reconcile your own records) |
+| `POST /api/v1/subs` | Create one → returns its `sub_url` |
+| `GET /api/v1/subs/{id}` | State: activation, expiry, remaining time, active devices |
+| `POST /api/v1/subs/{id}/extend` | **Renew** — add `{"days":N}` |
+| `PATCH /api/v1/subs/{id}` | Edit `name` / `duration_days` / `max_devices` / `note` / `path` |
+| `POST /api/v1/subs/{id}/pause` · `/resume` · `/reset` · `/toggle` | State transitions |
+| `GET /api/v1/subs/{id}/devices` | Registered devices, the cap, and the active count |
+| `POST /api/v1/subs/{id}/devices/reset` | Free every device slot |
+| `DELETE /api/v1/subs/{id}/devices/{device_id}` | Kick one device |
+| `DELETE /api/v1/subs/{id}` | Delete the subscription |
+
+**Use `/extend` for renewals, not `PATCH duration_days`.** `PATCH` *sets* the total and shifts the expiry by the difference, so renewing a subscription that lapsed 10 days ago by 30 would land only 20 days out. `/extend` restarts an expired subscription from now, so nobody loses days they paid for.
+
+**برای تمدید از `/extend` استفاده کن، نه `PATCH duration_days`.** حالت `PATCH` مقدار کل را *تنظیم* می‌کند و انقضا را به اندازه‌ی تفاوت جابجا می‌کند؛ پس تمدیدِ ۳۰ روزه‌ی اشتراکی که ۱۰ روز پیش منقضی شده، فقط ۲۰ روز اعتبار می‌دهد. `/extend` اشتراک منقضی را از همین لحظه شروع می‌کند.
+
+Two things worth knowing / دو نکته‌ی مهم:
+
+- **The clock starts on first connection**, not at creation — a subscription created today but first used next week still gets its full duration. / **شمارش مدت از اولین اتصال شروع می‌شود**، نه از لحظه‌ی ساخت.
+- If your client reaches the panel on an address customers don't use (e.g. `127.0.0.1:5000`), set **آدرس عمومی پنل** in the same settings card, otherwise generated `sub_url`s point at that internal address. / اگر کلاینت از آدرسی غیر از دامنه‌ی عمومی وصل می‌شود، «آدرس عمومی پنل» را در همان کارت تنظیمات پر کن.
+
+---
+
 ## 🔒 Security / امنیت
 
 - The admin password is stored **hashed** (Werkzeug scrypt/pbkdf2), never in plain text. The installer hashes it for you. / رمز ادمین به صورت **هش‌شده** ذخیره می‌شود، نه متن ساده. اسکریپت نصب خودش این کار را انجام می‌دهد.
 - `.env` and `database.db` are git-ignored and never committed. / فایل‌های `.env` و `database.db` در گیت نادیده گرفته می‌شوند.
 - Login is rate-limited against brute-force; session cookies are `HttpOnly` + `SameSite=Lax`, and `Secure` once SSL is enabled. / صفحه‌ی ورود در برابر حملات brute-force محدود شده و کوکی‌های سشن با `HttpOnly` و `SameSite=Lax` (و پس از فعال شدن SSL با `Secure`) تنظیم می‌شوند.
+- The **Machine API token** grants full control over subscriptions, so it is treated as a secret: blanked out of standard backups (which are unencrypted and can be auto-delivered to Telegram), and preserved on restore rather than overwritten by a stale value. Keep it off-panel too, and regenerate it if it ever leaks — that instantly invalidates the old one. / **توکن API ماشینی** کنترل کامل اشتراک‌ها را می‌دهد، پس مثل یک راز رفتار می‌شود: از بکاپ‌های استاندارد حذف می‌شود و موقع بازیابی، مقدار محلی حفظ می‌شود. اگر لو رفت، دوباره تولیدش کن تا توکن قبلی فوراً باطل شود.
 
 If you upgrade an old install that had a plain-text password in `.env`, re-run the installer or replace the value with a hash — see [v2raysub/README.md](v2raysub/README.md#3-setup-configuration).
 

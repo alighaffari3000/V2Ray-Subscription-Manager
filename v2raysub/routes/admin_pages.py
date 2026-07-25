@@ -12,7 +12,7 @@ from database import get_setting
 from services.path_service import get_primary_path, get_other_paths
 from services.config_service import get_all_configs_for_admin
 from services.user_service import get_all_users
-from utils.misc import get_base_url
+from utils.misc import get_public_base_url
 from utils.csrf import validate_csrf
 
 admin_pages_bp = Blueprint('admin_pages', __name__)
@@ -78,7 +78,7 @@ def admin():
     users = get_all_users()
     output_format = get_setting('output_format', 'base64')
     sort_dir = get_setting('config_sort_order', 'asc').lower()
-    base_url = get_base_url(request)
+    base_url = get_public_base_url(request)
 
     # Fetch automation settings and data
     from database import get_db
@@ -129,6 +129,7 @@ def admin():
 
     # Machine API token for an external sales bot (empty = API disabled).
     api_token = get_setting('api_token', '')
+    public_base_url = get_setting('public_base_url', '')
 
     # Backup Settings
     backup_scheduled_enabled = get_setting('backup_scheduled_enabled', '0')
@@ -175,6 +176,7 @@ def admin():
         device_grace_hours=device_grace_hours,
         profile_update_interval_hours=profile_update_interval_hours,
         api_token=api_token,
+        public_base_url=public_base_url,
         backup_scheduled_enabled=backup_scheduled_enabled,
         backup_interval=backup_interval,
         backup_scheduled_type=backup_scheduled_type,

@@ -326,6 +326,64 @@ def update_user(user_id, name=None, duration_days=None, custom_path=None,
         db.close()
 
 
+def extend_user(user_id, days):
+    """Add ``days`` to a subscription — the renewal primitive.
+
+    Distinct from ``update_user(duration_days=...)``, which *sets* the total and
+    shifts the expiry by the delta. Shifting is wrong for a renewal: extending a
+    subscription that expired 10 days ago by 30 would land 20 days from now, so
+    the customer would lose the days they just paid for. Here an expired
+    subscription restarts from *now* instead.
+
+    Semantics by state:
+        unlimited (duration 0) -> no-op, already unlimited
+        not yet activated      -> grow duration_days; the countdown still starts
+                                  on first use, so no days are burned unused
+        activated, still valid -> expire_at += days
+        activated, expired     -> expire_at = now + days (nothing is lost)
+
+    ``duration_days`` is kept as the running total of granted days. Returns
+    (success, message).
+    """
+    try:
+        days = int(days)
+    except (TypeError, ValueError):
+        return False, 'تعداد روز باید عدد باشد'
+    if days <= 0:
+        return False, 'تعداد روز برای تمدید باید بزرگ‌تر از صفر باشد'
+
+    db = get_db()
+    try:
+        row = db.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
+        if not row:
+            return False, 'کاربر پیدا نشد'
+        user = dict(row)
+
+        # duration 0 = unlimited; adding days would silently make it finite.
+        if int(user['duration_days'] or 0) == 0:
+            return True, 'اشتراک نامحدود است؛ تمدید لازم نیست.'
+
+        now = _utcnow()
+        sets = ['duration_days = duration_days + ?', 'updated_at = ?']
+        params = [days, _utcnow_str()]
+
+        if user['activated_at']:
+            expire = _parse(user['expire_at'])
+            base = expire if (expire is not None and expire > now) else now
+            sets.insert(0, 'expire_at = ?')
+            params.insert(0, (base + timedelta(days=days)).strftime(_TS_FMT))
+
+        params.append(user_id)
+        db.execute(f'UPDATE users SET {", ".join(sets)} WHERE id = ?', params)
+        db.commit()
+        return True, f'اشتراک {days} روز تمدید شد.'
+    except Exception as e:
+        print(f"Error extending user: {e}")
+        return False, 'خطا در تمدید اشتراک'
+    finally:
+        db.close()
+
+
 def delete_user(user_id):
     """Remove a user. Returns (success, message)."""
     db = get_db()

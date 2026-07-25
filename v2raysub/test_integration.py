@@ -1513,6 +1513,143 @@ class TestMachineApi(IntegrationTestBase):
         resp = self.client.post('/adminpanel/api/api_token/generate')
         self.assertEqual(resp.status_code, 401)
 
+    # ── list ──
+    def test_list_subs(self):
+        self._set_token()
+        self._create(name='A')
+        self._create(name='B')
+        resp = self.client.get('/api/v1/subs', headers=self._auth())
+        self.assertEqual(resp.status_code, 200)
+        body = json.loads(resp.data)
+        self.assertEqual(body['count'], 2)
+        self.assertEqual({s['name'] for s in body['subscriptions']}, {'A', 'B'})
+
+    def test_list_requires_token(self):
+        self._set_token()
+        self.assertEqual(self.client.get('/api/v1/subs').status_code, 401)
+
+    # ── extend / renewal ──
+    def _force_state(self, sub_id, activated_days_ago, expired_days_ago):
+        """Pin a sub to an activated-and-expired state (UTC)."""
+        from database import get_db
+        db = get_db()
+        db.execute("UPDATE users SET activated_at = datetime('now', ?), "
+                   "expire_at = datetime('now', ?) WHERE id = ?",
+                   (f'-{activated_days_ago} day', f'-{expired_days_ago} day', sub_id))
+        db.commit()
+        db.close()
+
+    def test_extend_adds_days_to_active_sub(self):
+        self._set_token()
+        sub_id = json.loads(self._create(days=30).data)['subscription']['id']
+        # Activate it by fetching the link, so a real expiry exists.
+        path = json.loads(self.client.get(f'/api/v1/subs/{sub_id}',
+                                          headers=self._auth()).data)['subscription']['path']
+        self.client.get(f'/sub/{path}')
+        before = json.loads(self.client.get(f'/api/v1/subs/{sub_id}',
+                                            headers=self._auth()).data)['subscription']
+        resp = self.client.post(f'/api/v1/subs/{sub_id}/extend',
+                                data=json.dumps({'days': 15}),
+                                content_type='application/json', headers=self._auth())
+        self.assertEqual(resp.status_code, 200)
+        after = json.loads(resp.data)['subscription']
+        gained = after['remaining_seconds'] - before['remaining_seconds']
+        self.assertAlmostEqual(gained, 15 * 86400, delta=120)
+        self.assertEqual(after['duration_days'], 45)
+
+    def test_extend_expired_sub_restarts_from_now(self):
+        """The renewal bug guard: extending a sub that expired 10 days ago by 30
+        must give a full 30 days, not 20 (which a delta-shift would produce)."""
+        self._set_token()
+        sub_id = json.loads(self._create(days=30).data)['subscription']['id']
+        self._force_state(sub_id, activated_days_ago=40, expired_days_ago=10)
+        self.assertEqual(json.loads(self.client.get(
+            f'/api/v1/subs/{sub_id}', headers=self._auth()).data
+        )['subscription']['effective_status'], 'EXPIRED')
+
+        resp = self.client.post(f'/api/v1/subs/{sub_id}/extend',
+                                data=json.dumps({'days': 30}),
+                                content_type='application/json', headers=self._auth())
+        after = json.loads(resp.data)['subscription']
+        self.assertEqual(after['effective_status'], 'ACTIVE')
+        self.assertAlmostEqual(after['remaining_seconds'], 30 * 86400, delta=120)
+
+    def test_extend_not_yet_activated_only_grows_duration(self):
+        self._set_token()
+        sub_id = json.loads(self._create(days=30).data)['subscription']['id']
+        resp = self.client.post(f'/api/v1/subs/{sub_id}/extend',
+                                data=json.dumps({'days': 30}),
+                                content_type='application/json', headers=self._auth())
+        after = json.loads(resp.data)['subscription']
+        self.assertEqual(after['duration_days'], 60)
+        self.assertFalse(after['activated_at'])   # countdown still starts on first use
+
+    def test_extend_unlimited_is_noop(self):
+        self._set_token()
+        sub_id = json.loads(self._create(days=0).data)['subscription']['id']
+        resp = self.client.post(f'/api/v1/subs/{sub_id}/extend',
+                                data=json.dumps({'days': 30}),
+                                content_type='application/json', headers=self._auth())
+        self.assertEqual(json.loads(resp.data)['subscription']['duration_days'], 0)
+
+    def test_extend_rejects_non_positive_days(self):
+        self._set_token()
+        sub_id = json.loads(self._create().data)['subscription']['id']
+        for bad in (0, -5, 'abc'):
+            resp = self.client.post(f'/api/v1/subs/{sub_id}/extend',
+                                    data=json.dumps({'days': bad}),
+                                    content_type='application/json', headers=self._auth())
+            self.assertEqual(resp.status_code, 400, f'days={bad!r} should be rejected')
+
+    # ── devices ──
+    def test_list_and_reset_devices(self):
+        self._set_token()
+        # A config must exist for the sub to be served (and register a device).
+        self.client.post('/adminpanel/login', data={
+            'username': _TEST_USERNAME, 'password': _TEST_PASSWORD}, follow_redirects=True)
+        self.client.post('/adminpanel/add', data={
+            'config_text': 'vmess://eyJhZGQiOiJ0ZXN0LmNvbSIsInBvcnQiOiI0NDMiLCJ2IjoiMiJ9'})
+
+        sub = json.loads(self._create(max_devices=2).data)['subscription']
+        self.client.get(f"/sub/{sub['path']}", environ_overrides={'REMOTE_ADDR': '5.5.5.5'},
+                        headers={'User-Agent': 'v2rayNG/1.0'})
+
+        listed = json.loads(self.client.get(f"/api/v1/subs/{sub['id']}/devices",
+                                            headers=self._auth()).data)
+        self.assertEqual(listed['max_devices'], 2)
+        self.assertEqual(listed['active_device_count'], 1)
+        self.assertEqual(len(listed['devices']), 1)
+
+        reset = self.client.post(f"/api/v1/subs/{sub['id']}/devices/reset",
+                                 headers=self._auth())
+        self.assertTrue(json.loads(reset.data)['success'])
+        after = json.loads(self.client.get(f"/api/v1/subs/{sub['id']}/devices",
+                                           headers=self._auth()).data)
+        self.assertEqual(after['devices'], [])
+
+    def test_devices_of_missing_sub_is_404(self):
+        self._set_token()
+        self.assertEqual(self.client.get('/api/v1/subs/999999/devices',
+                                         headers=self._auth()).status_code, 404)
+
+    # ── public_base_url ──
+    def test_public_base_url_overrides_sub_url(self):
+        """A configured public URL wins over the requesting host, so links handed
+        to customers never point at an internal address the bot happened to use."""
+        self._set_token()
+        from database import set_setting
+        set_setting('public_base_url', 'https://vpn.example.com')
+        sub = json.loads(self._create().data)['subscription']
+        self.assertTrue(sub['sub_url'].startswith('https://vpn.example.com/sub/'),
+                        sub['sub_url'])
+
+    def test_public_base_url_rejects_scheme_less_value(self):
+        self._login()
+        resp = self.client.post('/adminpanel/api/settings/public_base_url',
+                                data=json.dumps({'public_base_url': 'example.com'}),
+                                content_type='application/json')
+        self.assertEqual(resp.status_code, 400)
+
 
 if __name__ == '__main__':
     unittest.main()

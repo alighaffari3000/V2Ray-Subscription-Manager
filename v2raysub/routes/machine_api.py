@@ -17,11 +17,11 @@ from flask import Blueprint, request, jsonify
 
 import utils.constants as constants
 from database import get_setting
-from utils.misc import get_base_url
+from utils.misc import get_public_base_url
 from services.user_service import (
-    get_user, add_user, update_user, delete_user,
-    pause_user, resume_user, reset_user, set_user_enabled,
-    list_user_devices,
+    get_user, get_all_users, add_user, update_user, delete_user,
+    extend_user, pause_user, resume_user, reset_user, set_user_enabled,
+    list_user_devices, reset_user_devices, delete_user_device,
 )
 
 machine_api_bp = Blueprint('machine_api', __name__)
@@ -59,27 +59,28 @@ def require_api_token(f):
     return wrapper
 
 
-def _serialize(user):
+def _serialize(user, active_devices=None):
     """Shape a user_service dict into the API's subscription object.
 
-    Adds the full ``sub_url`` (built from the request host, so it matches the
-    panel's public domain the bot called) and the live active-device count.
+    Adds the customer-facing ``sub_url`` and the live active-device count. Pass
+    ``active_devices`` to reuse an already-known count (list endpoint) instead of
+    querying per row.
     """
     if not user:
         return None
-    active_devices = None
-    try:
-        info = list_user_devices(user['id'])
-        if info:
-            active_devices = info['active_device_count']
-    except Exception:
-        active_devices = None
+    if active_devices is None:
+        try:
+            info = list_user_devices(user['id'])
+            if info:
+                active_devices = info['active_device_count']
+        except Exception:
+            active_devices = None
     return {
         'id': user['id'],
         'uuid': user.get('uuid'),
         'name': user.get('name'),
         'path': user.get('path'),
-        'sub_url': f"{get_base_url(request)}sub/{user['path']}",
+        'sub_url': f"{get_public_base_url(request)}sub/{user['path']}",
         'status': user.get('status'),
         'effective_status': user.get('effective_status'),
         'duration_days': user.get('duration_days'),
@@ -140,6 +141,19 @@ def create_sub():
 
 
 # ─── Read ────────────────────────────────────────────────────────
+@machine_api_bp.route(f'{API_PREFIX}/subs', methods=['GET'])
+@require_api_token
+def list_subs():
+    """Every subscription, newest first — for reconciling the client's own records
+    against the panel (detecting subs deleted or edited here)."""
+    users = get_all_users()
+    return jsonify({
+        'success': True,
+        'count': len(users),
+        'subscriptions': [_serialize(u, u.get('active_device_count')) for u in users],
+    })
+
+
 @machine_api_bp.route(f'{API_PREFIX}/subs/<int:sub_id>', methods=['GET'])
 @require_api_token
 def get_sub(sub_id):
@@ -177,6 +191,22 @@ def update_sub(sub_id):
     return _mutation_result(ok, message, sub_id)
 
 
+# ─── Renewal ─────────────────────────────────────────────────────
+@machine_api_bp.route(f'{API_PREFIX}/subs/<int:sub_id>/extend', methods=['POST'])
+@require_api_token
+def extend_sub(sub_id):
+    """Add days to a subscription. Body: ``{"days": 30}``.
+
+    Use this for renewals rather than PATCHing ``duration_days``: an already
+    expired subscription restarts from now, so the customer never loses days they
+    just paid for.
+    """
+    if not get_user(sub_id):
+        return _not_found()
+    data = request.get_json(silent=True) or {}
+    return _mutation_result(*extend_user(sub_id, data.get('days')), sub_id)
+
+
 # ─── State transitions ───────────────────────────────────────────
 @machine_api_bp.route(f'{API_PREFIX}/subs/<int:sub_id>/pause', methods=['POST'])
 @require_api_token
@@ -212,6 +242,46 @@ def toggle_sub(sub_id):
     data = request.get_json(silent=True) or {}
     enabled = bool(data.get('enabled', True))
     return _mutation_result(*set_user_enabled(sub_id, enabled), sub_id)
+
+
+# ─── Devices ─────────────────────────────────────────────────────
+# The device cap is half of what a plan sells (duration x max_devices), so
+# "I hit the device limit" / "I switched phones" is the most likely support
+# request. Exposing these lets the external client resolve it on its own.
+
+@machine_api_bp.route(f'{API_PREFIX}/subs/<int:sub_id>/devices', methods=['GET'])
+@require_api_token
+def list_devices(sub_id):
+    """Registered devices (active first), the cap, and the active count."""
+    info = list_user_devices(sub_id)
+    if info is None:
+        return _not_found()
+    return jsonify({'success': True, **info})
+
+
+@machine_api_bp.route(f'{API_PREFIX}/subs/<int:sub_id>/devices/reset', methods=['POST'])
+@require_api_token
+def reset_devices(sub_id):
+    """Forget every device, freeing all slots."""
+    ok, message = reset_user_devices(sub_id)
+    if not ok:
+        return _not_found()
+    return jsonify({'success': True, 'message': message})
+
+
+@machine_api_bp.route(f'{API_PREFIX}/subs/<int:sub_id>/devices/<int:device_id>',
+                      methods=['DELETE'])
+@machine_api_bp.route(f'{API_PREFIX}/subs/<int:sub_id>/devices/<int:device_id>/delete',
+                      methods=['POST'])
+@require_api_token
+def delete_device(sub_id, device_id):
+    """Kick a single device, freeing its slot."""
+    if not get_user(sub_id):
+        return _not_found()
+    ok, message = delete_user_device(sub_id, device_id)
+    if not ok:
+        return jsonify({'success': False, 'error': 'not_found', 'message': message}), 404
+    return jsonify({'success': True, 'message': message})
 
 
 # ─── Delete ──────────────────────────────────────────────────────

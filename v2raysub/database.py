@@ -269,6 +269,11 @@ def init_db():
     # the Settings tab. See routes/machine_api.py.
     db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('api_token', '')")
 
+    # Canonical public base URL for subscription links (e.g. https://example.com/).
+    # Empty = derive it from the incoming request, as before. Set this when an
+    # external client reaches the panel on a different address than customers do.
+    db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('public_base_url', '')")
+
     # Indexes for the hot query paths. subscription_logs is scanned by
     # request_path (per-user history) and by accessed_at (dashboard "today"
     # counters and retention pruning); configs is filtered by status/enabled.

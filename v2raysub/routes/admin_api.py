@@ -22,7 +22,7 @@ from services.user_service import (
     list_user_devices, reset_user_devices, delete_user_device,
 )
 from database import get_setting, set_setting
-from utils.misc import get_base_url
+from utils.misc import get_public_base_url
 from utils.csrf import validate_csrf
 
 admin_api_bp = Blueprint('admin_api', __name__)
@@ -232,7 +232,7 @@ def add_path_route():
     result = {'success': success, 'message': message}
     if success:
         result['current_path'] = new_path
-        base_url = get_base_url(request)
+        base_url = get_public_base_url(request)
         result['current_url'] = f"{base_url}sub/{new_path}"
 
     return jsonify(result)
@@ -579,7 +579,7 @@ def cancel_automation():
 def _user_link(user):
     """Attach the full subscription URL to a user dict for the frontend."""
     if user:
-        user['sub_url'] = f"{get_base_url(request)}sub/{user['path']}"
+        user['sub_url'] = f"{get_public_base_url(request)}sub/{user['path']}"
     return user
 
 
@@ -616,6 +616,23 @@ def revoke_api_token():
         return err
     set_setting('api_token', '')
     return jsonify({'success': True, 'message': 'توکن حذف شد؛ API بات غیرفعال شد.'})
+
+
+@admin_api_bp.route('/adminpanel/api/settings/public_base_url', methods=['POST'])
+def save_public_base_url():
+    """Canonical customer-facing base URL used to build every subscription link.
+    Empty clears the override and restores request-derived behaviour."""
+    err = _require_login()
+    if err:
+        return err
+    value = (_get_json_safe().get('public_base_url') or '').strip()
+    if value and not value.startswith(('http://', 'https://')):
+        return jsonify({'success': False,
+                        'message': 'آدرس باید با http:// یا https:// شروع شود.'}), 400
+    set_setting('public_base_url', value)
+    return jsonify({'success': True, 'value': value,
+                    'message': 'آدرس عمومی ذخیره شد.' if value
+                               else 'آدرس عمومی پاک شد؛ از آدرس درخواست استفاده می‌شود.'})
 
 
 @admin_api_bp.route('/adminpanel/api/users', methods=['GET'])
