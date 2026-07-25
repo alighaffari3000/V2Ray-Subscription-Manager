@@ -12,6 +12,8 @@
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-07-25
+
 ### Added
 - **درج خودکار پرچم کشور در نام کانفیگ‌ها بر اساس تشخیص خودِ موتور (GeoIP).**
   موتور اسکن از قبل برای هر کانفیگ سالم، کشور آی‌پیِ سرور را با دیتابیس GeoIP
@@ -290,7 +292,8 @@
 - نمایش نسخه در پایان نصب/آپدیت: «Version X.Y.Z installed/updated successfully».
 - مدیریت کاربران (user-management) و محدودیت تعداد دستگاه (device-limit).
 
-[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.12.0...HEAD
+[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.13.0...HEAD
+[1.13.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.11.1...v1.12.0
 [1.11.1]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.11.0...v1.11.1
 [1.11.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.10.1...v1.11.0
