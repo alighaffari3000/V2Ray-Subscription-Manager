@@ -456,9 +456,9 @@ class ConfigImporter:
                 cursor = db.execute(
                     '''INSERT INTO configs (
                         config_text, config_type, sort_order, is_enabled, status,
-                        source, mode, last_check, last_success, latency, consecutive_failures, health_status
-                    ) VALUES (?, ?, ?, 1, 'active', ?, 'auto', ?, ?, ?, 0, 'healthy')''',
-                    (uri, protocol, next_order, source_name, scan_time_str, scan_time_str, int(item['latency_ms']))
+                        source, mode, last_check, last_success, latency, consecutive_failures, health_status, country_code
+                    ) VALUES (?, ?, ?, 1, 'active', ?, 'auto', ?, ?, ?, 0, 'healthy', ?)''',
+                    (uri, protocol, next_order, source_name, scan_time_str, scan_time_str, int(item['latency_ms']), item.get('country_code'))
                 )
                 config_id = cursor.lastrowid
                 
@@ -531,9 +531,9 @@ class ConfigImporter:
                     cursor = db.execute(
                         '''INSERT INTO configs (
                             config_text, config_type, sort_order, is_enabled, status,
-                            source, mode, last_check, last_success, latency, consecutive_failures, health_status
-                        ) VALUES (?, ?, ?, 1, 'active', ?, 'auto', ?, ?, ?, 0, 'healthy')''',
-                        (uri, protocol, next_order, source_name, scan_time_str, scan_time_str, cand_lat)
+                            source, mode, last_check, last_success, latency, consecutive_failures, health_status, country_code
+                        ) VALUES (?, ?, ?, 1, 'active', ?, 'auto', ?, ?, ?, 0, 'healthy', ?)''',
+                        (uri, protocol, next_order, source_name, scan_time_str, scan_time_str, cand_lat, item.get('country_code'))
                     )
                     new_id = cursor.lastrowid
                     if scan_id is not None:
