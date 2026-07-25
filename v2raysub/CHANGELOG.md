@@ -12,6 +12,8 @@
 
 ## [Unreleased]
 
+## [1.20.0] - 2026-07-25
+
 ### Added
 - **سخت‌گیری بیشتر در برابر مصرف کامل منابع سرور.** گانیکورن اکنون
   `--timeout 60`، `--graceful-timeout 30` و `--max-requests 500` دارد تا
@@ -500,7 +502,8 @@
 - نمایش نسخه در پایان نصب/آپدیت: «Version X.Y.Z installed/updated successfully».
 - مدیریت کاربران (user-management) و محدودیت تعداد دستگاه (device-limit).
 
-[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.19.0...HEAD
+[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.20.0...HEAD
+[1.20.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.19.0...v1.20.0
 [1.19.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.18.0...v1.19.0
 [1.18.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.17.1...v1.18.0
 [1.17.1]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.17.0...v1.17.1
