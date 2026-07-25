@@ -292,7 +292,14 @@ def _add_column_if_missing(db, table, column, col_type):
     try:
         db.execute(f'SELECT {column} FROM {table} LIMIT 1')
     except sqlite3.OperationalError:
-        db.execute(f'ALTER TABLE {table} ADD COLUMN {column} {col_type}')
+        try:
+            db.execute(f'ALTER TABLE {table} ADD COLUMN {column} {col_type}')
+        except sqlite3.OperationalError as exc:
+            # gunicorn boots several workers at once and each runs init_db, so two
+            # can both find the column missing and both try to add it. Losing that
+            # race is fine; anything else is a real error and must surface.
+            if 'duplicate column' not in str(exc).lower():
+                raise
 
 
 def get_setting(key, default=''):

@@ -117,6 +117,19 @@ curl -X POST https://yourdomain.com/api/v1/subs \
 | `DELETE /api/v1/subs/{id}/devices/{device_id}` | Kick one device |
 | `DELETE /api/v1/subs/{id}` | Delete the subscription |
 
+Errors carry a machine-readable `error` code — never parse the human `message`:
+
+| Code | HTTP | Meaning |
+|---|---|---|
+| `api_disabled` | 503 | No token configured yet |
+| `unauthorized` | 401 | Missing or wrong token |
+| `invalid_request` | 400 | A field failed validation (the offending one is in `field`) |
+| `path_taken` | 409 | That `path` already exists — the response carries the **existing** subscription |
+| `not_found` / `device_not_found` | 404 | No such subscription / device |
+| `internal_error` | 500 | The operation failed server-side; safe to retry |
+
+Supply your own `path` (an order id, say) to make creates **retry-safe**: a duplicate returns `409` with the subscription that already exists, so a retried payment webhook recovers the original instead of creating a second one. Types are strict — integer fields reject strings, floats and booleans; `enabled` must be a real `true`/`false` — so a malformed request fails loudly rather than being silently coerced.
+
 **Use `/extend` for renewals, not `PATCH duration_days`.** `PATCH` *sets* the total and shifts the expiry by the difference, so renewing a subscription that lapsed 10 days ago by 30 would land only 20 days out. `/extend` restarts an expired subscription from now, so nobody loses days they paid for.
 
 **برای تمدید از `/extend` استفاده کن، نه `PATCH duration_days`.** حالت `PATCH` مقدار کل را *تنظیم* می‌کند و انقضا را به اندازه‌ی تفاوت جابجا می‌کند؛ پس تمدیدِ ۳۰ روزه‌ی اشتراکی که ۱۰ روز پیش منقضی شده، فقط ۲۰ روز اعتبار می‌دهد. `/extend` اشتراک منقضی را از همین لحظه شروع می‌کند.
@@ -124,7 +137,8 @@ curl -X POST https://yourdomain.com/api/v1/subs \
 Two things worth knowing / دو نکته‌ی مهم:
 
 - **The clock starts on first connection**, not at creation — a subscription created today but first used next week still gets its full duration. / **شمارش مدت از اولین اتصال شروع می‌شود**، نه از لحظه‌ی ساخت.
-- If your client reaches the panel on an address customers don't use (e.g. `127.0.0.1:5000`), set **آدرس عمومی پنل** in the same settings card, otherwise generated `sub_url`s point at that internal address. / اگر کلاینت از آدرسی غیر از دامنه‌ی عمومی وصل می‌شود، «آدرس عمومی پنل» را در همان کارت تنظیمات پر کن.
+- If your client reaches the panel on an address customers don't use (e.g. `127.0.0.1:5000`), set **آدرس عمومی پنل** in the same settings card, otherwise generated `sub_url`s point at that internal address. The installer pins this automatically when the panel runs on a non-standard port, because nginx forwards `Host` without the port. / اگر کلاینت از آدرسی غیر از دامنه‌ی عمومی وصل می‌شود، «آدرس عمومی پنل» را در همان کارت تنظیمات پر کن. نصاب این مقدار را وقتی پنل روی پورت غیراستاندارد است خودش تنظیم می‌کند.
+- Pausing freezes the clock, and extending a paused subscription adds to the frozen remainder — resume still credits the full paused span. / توقف، شمارش را متوقف می‌کند و تمدیدِ اشتراک متوقف به همان باقی‌مانده‌ی منجمد اضافه می‌شود.
 
 ---
 

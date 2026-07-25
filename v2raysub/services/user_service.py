@@ -19,7 +19,7 @@ from datetime import datetime, timedelta, timezone
 
 from database import get_db, get_setting
 from utils.constants import (
-    USER_PATH_REGEX, USER_PATH_LENGTH,
+    USER_PATH_REGEX, USER_PATH_LENGTH, USER_MAX_DURATION_DAYS,
     USER_STATUS_ACTIVE, USER_STATUS_PAUSED, USER_STATUS_DISABLED, USER_STATUS_EXPIRED,
 )
 from utils.misc import device_fingerprint
@@ -202,6 +202,18 @@ def get_user(user_id):
     return _decorate(dict(row)) if row else None
 
 
+def get_user_by_path(path_val):
+    """Single user looked up by sub-path, or None. Read-only — unlike
+    ``resolve_user_request``, which activates the subscription as a side effect
+    and must never be used for a plain lookup."""
+    db = get_db()
+    try:
+        row = db.execute('SELECT * FROM users WHERE path = ?', (path_val,)).fetchone()
+    finally:
+        db.close()
+    return _decorate(dict(row)) if row else None
+
+
 def add_user(name, duration_days=30, custom_path=None, note=None, max_devices=1):
     """Create a user with a unique sub-path. Returns (success, message, user|None)."""
     name = (name or '').strip()
@@ -213,10 +225,16 @@ def add_user(name, duration_days=30, custom_path=None, note=None, max_devices=1)
         return False, 'مدت اشتراک باید عدد باشد', None
     if duration_days < 0:
         return False, 'مدت اشتراک نمی‌تواند منفی باشد', None
+    if duration_days > USER_MAX_DURATION_DAYS:
+        return False, f'مدت اشتراک نمی‌تواند بیشتر از {USER_MAX_DURATION_DAYS} روز باشد', None
     try:
         max_devices = int(max_devices)
     except (TypeError, ValueError):
         max_devices = 1
+    # 0 means unlimited, so a negative value would silently *lift* the cap
+    # (see _allow_device) instead of tightening it.
+    if max_devices < 0:
+        return False, 'حداکثر دستگاه نمی‌تواند منفی باشد', None
 
     db = get_db()
     try:
@@ -280,10 +298,16 @@ def update_user(user_id, name=None, duration_days=None, custom_path=None,
             sets.append('note = ?'); params.append(note)
 
         if max_devices is not None:
+            # Convert first: appending the placeholder before int() can raise would
+            # leave an unbound '?' behind and kill the whole statement, silently
+            # dropping the other fields in the same request.
             try:
-                sets.append('max_devices = ?'); params.append(int(max_devices))
+                max_devices_val = int(max_devices)
             except (TypeError, ValueError):
-                pass
+                return False, 'حداکثر دستگاه باید عدد باشد'
+            if max_devices_val < 0:
+                return False, 'حداکثر دستگاه نمی‌تواند منفی باشد'
+            sets.append('max_devices = ?'); params.append(max_devices_val)
 
         if duration_days is not None:
             try:
@@ -292,6 +316,8 @@ def update_user(user_id, name=None, duration_days=None, custom_path=None,
                 return False, 'مدت اشتراک باید عدد باشد'
             if new_days < 0:
                 return False, 'مدت اشتراک نمی‌تواند منفی باشد'
+            if new_days > USER_MAX_DURATION_DAYS:
+                return False, f'مدت اشتراک نمی‌تواند بیشتر از {USER_MAX_DURATION_DAYS} روز باشد'
             old_days = user['duration_days']
             sets.append('duration_days = ?'); params.append(new_days)
             # Recompute expiry only for an already-activated user; a not-yet-activated
@@ -349,33 +375,64 @@ def extend_user(user_id, days):
         days = int(days)
     except (TypeError, ValueError):
         return False, 'تعداد روز باید عدد باشد'
+    if isinstance(days, bool):
+        return False, 'تعداد روز باید عدد باشد'
     if days <= 0:
         return False, 'تعداد روز برای تمدید باید بزرگ‌تر از صفر باشد'
+    # Without a ceiling, a computed date past year 9999 makes SQLite's datetime()
+    # return NULL, which would store "no expiry" on an activated subscription and
+    # leave it servable forever. A caller sending seconds instead of days lands
+    # squarely in that range.
+    if days > USER_MAX_DURATION_DAYS:
+        return False, f'تمدید نمی‌تواند بیشتر از {USER_MAX_DURATION_DAYS} روز باشد'
 
     db = get_db()
     try:
-        row = db.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
+        row = db.execute(
+            'SELECT duration_days FROM users WHERE id = ?', (user_id,)
+        ).fetchone()
         if not row:
             return False, 'کاربر پیدا نشد'
-        user = dict(row)
-
         # duration 0 = unlimited; adding days would silently make it finite.
-        if int(user['duration_days'] or 0) == 0:
+        if int(row['duration_days'] or 0) == 0:
             return True, 'اشتراک نامحدود است؛ تمدید لازم نیست.'
 
-        now = _utcnow()
-        sets = ['duration_days = duration_days + ?', 'updated_at = ?']
-        params = [days, _utcnow_str()]
-
-        if user['activated_at']:
-            expire = _parse(user['expire_at'])
-            base = expire if (expire is not None and expire > now) else now
-            sets.insert(0, 'expire_at = ?')
-            params.insert(0, (base + timedelta(days=days)).strftime(_TS_FMT))
-
-        params.append(user_id)
-        db.execute(f'UPDATE users SET {", ".join(sets)} WHERE id = ?', params)
+        # One atomic statement: the new expiry is derived from the row's *current*
+        # value inside SQLite rather than from a value read earlier in Python.
+        # Read-modify-write in Python loses an update when two renewals land at
+        # once (a retried payment webhook, say): both would read the same expiry
+        # and write the same result, so the customer would pay twice and get one
+        # extension. The duration_days guard makes the unlimited check atomic too.
+        #
+        # MAX(expire_at, now) is what makes an expired subscription restart from
+        # now instead of from its lapsed expiry; COALESCE covers the odd row that
+        # is activated with no expiry recorded.
+        #
+        # A PAUSED subscription is deliberately excluded from that rebase. Its
+        # expire_at is frozen and usually sits in the past, with the real remainder
+        # held as (expire_at - paused_at); resume_user later adds the whole paused
+        # span back. Rebasing to now would discard that remainder AND still get the
+        # span added on resume, handing the customer the entire pause as free time.
+        cur = db.execute(
+            """UPDATE users
+                  SET expire_at = CASE
+                          WHEN activated_at IS NULL THEN expire_at
+                          WHEN status = ? THEN
+                               datetime(COALESCE(expire_at, datetime('now')),
+                                        '+' || ? || ' days')
+                          ELSE datetime(
+                                   MAX(COALESCE(expire_at, datetime('now')), datetime('now')),
+                                   '+' || ? || ' days')
+                      END,
+                      duration_days = duration_days + ?,
+                      updated_at = datetime('now')
+                WHERE id = ? AND duration_days != 0""",
+            (USER_STATUS_PAUSED, days, days, days, user_id)
+        )
         db.commit()
+        if cur.rowcount == 0:
+            # Lost a race against a concurrent edit that made it unlimited/removed it.
+            return False, 'تمدید انجام نشد؛ وضعیت اشتراک تغییر کرده بود.'
         return True, f'اشتراک {days} روز تمدید شد.'
     except Exception as e:
         print(f"Error extending user: {e}")

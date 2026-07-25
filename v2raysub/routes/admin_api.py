@@ -626,9 +626,27 @@ def save_public_base_url():
     if err:
         return err
     value = (_get_json_safe().get('public_base_url') or '').strip()
-    if value and not value.startswith(('http://', 'https://')):
-        return jsonify({'success': False,
-                        'message': 'آدرس باید با http:// یا https:// شروع شود.'}), 400
+    if value:
+        # A prefix check is not enough: 'https://' alone, or a value carrying a
+        # path/query, produces links like 'https://sub/abc' or
+        # 'https://host/?x=1/sub/abc'. Since this value also feeds the links shown
+        # in this panel, one typo would corrupt those too — so require a real
+        # origin and nothing more.
+        from urllib.parse import urlsplit
+        parts = urlsplit(value)
+        scheme = parts.scheme.lower()
+        if scheme not in ('http', 'https'):
+            return jsonify({'success': False,
+                            'message': 'آدرس باید با http:// یا https:// شروع شود.'}), 400
+        if not parts.netloc or any(ch.isspace() for ch in parts.netloc):
+            return jsonify({'success': False,
+                            'message': 'آدرس دامنه‌ی معتبری ندارد.'}), 400
+        if parts.path.strip('/') or parts.query or parts.fragment:
+            return jsonify({'success': False,
+                            'message': 'آدرس باید فقط دامنه (و در صورت نیاز پورت) باشد، '
+                                       'بدون مسیر یا پارامتر.'}), 400
+        # Normalise: lowercase scheme, drop any trailing slash (the helper re-adds it).
+        value = f'{scheme}://{parts.netloc}'
     set_setting('public_base_url', value)
     return jsonify({'success': True, 'value': value,
                     'message': 'آدرس عمومی ذخیره شد.' if value

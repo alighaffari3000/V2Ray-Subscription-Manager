@@ -16,10 +16,11 @@ from functools import wraps
 from flask import Blueprint, request, jsonify
 
 import utils.constants as constants
+from utils.constants import USER_MAX_DURATION_DAYS
 from database import get_setting
 from utils.misc import get_public_base_url
 from services.user_service import (
-    get_user, get_all_users, add_user, update_user, delete_user,
+    get_user, get_user_by_path, get_all_users, add_user, update_user, delete_user,
     extend_user, pause_user, resume_user, reset_user, set_user_enabled,
     list_user_devices, reset_user_devices, delete_user_device,
 )
@@ -52,7 +53,11 @@ def require_api_token(f):
                             'message': 'Machine API is disabled (no token configured).'}), 503
         auth = request.headers.get('Authorization', '')
         token = auth[7:].strip() if auth.startswith('Bearer ') else ''
-        if not token or not secrets.compare_digest(token, configured):
+        # Compare as bytes: compare_digest raises TypeError on non-ASCII str, and
+        # headers are attacker-controlled, so a token containing e.g. 'é' would
+        # turn this pre-auth path into an unhandled 500 on an unthrottled route.
+        if not token or not secrets.compare_digest(token.encode('utf-8'),
+                                                  configured.encode('utf-8')):
             return jsonify({'success': False, 'error': 'unauthorized',
                             'message': 'Invalid or missing API token.'}), 401
         return f(*args, **kwargs)
@@ -101,6 +106,44 @@ def _not_found():
                     'message': 'Subscription not found.'}), 404
 
 
+def _bad_request(field, message):
+    return jsonify({'success': False, 'error': 'invalid_request',
+                    'field': field, 'message': message}), 400
+
+
+def _require_int(data, field, default=None, minimum=None, maximum=None):
+    """Read a strictly-integral field. Returns (value, error_response|None).
+
+    A machine API should not guess: JSON booleans (``true`` is an int in Python),
+    floats and numeric strings are all rejected rather than silently coerced, so a
+    malformed renewal fails loudly instead of quietly applying '1 day'.
+    """
+    if field not in data or data.get(field) is None:
+        return default, None
+    value = data.get(field)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None, _bad_request(field, f'{field} must be an integer.')
+    if minimum is not None and value < minimum:
+        return None, _bad_request(field, f'{field} must be >= {minimum}.')
+    if maximum is not None and value > maximum:
+        return None, _bad_request(field, f'{field} must be <= {maximum}.')
+    return value, None
+
+
+def _require_bool(data, field, default):
+    """Read a strict JSON boolean. Returns (value, error_response|None).
+
+    Never truthiness-coerce here: ``bool("false")`` is True, so accepting a string
+    would flip a suspend request into an enable — the dangerous direction.
+    """
+    if field not in data or data.get(field) is None:
+        return default, None
+    value = data.get(field)
+    if not isinstance(value, bool):
+        return None, _bad_request(field, f'{field} must be true or false.')
+    return value, None
+
+
 def _mutation_result(ok, message, sub_id):
     """Standard response for a state transition: refresh the sub on success."""
     if not ok:
@@ -127,14 +170,37 @@ def create_sub():
     if not name:
         return jsonify({'success': False, 'error': 'invalid_name',
                         'message': 'name is required.'}), 400
+    custom_path = (data.get('path') or '').strip() or None
+    # Validate up front so the only way the create below can fail with a custom
+    # path already present is a genuine path conflict — which is what makes the
+    # 409 contract below trustworthy.
+    duration_days, err = _require_int(data, 'duration_days', default=30,
+                                      minimum=0, maximum=USER_MAX_DURATION_DAYS)
+    if err:
+        return err
+    max_devices, err = _require_int(data, 'max_devices', default=1, minimum=0)
+    if err:
+        return err
+
     ok, message, user = add_user(
         name,
-        duration_days=data.get('duration_days', 30),
-        custom_path=(data.get('path') or '').strip() or None,
+        duration_days=duration_days,
+        custom_path=custom_path,
         note=(data.get('note') or '').strip() or None,
-        max_devices=data.get('max_devices', 1),
+        max_devices=max_devices,
     )
     if not ok:
+        # A caller that supplies its own deterministic path (an order id, say) gets
+        # a retry-safe create: a duplicate is reported as a distinct, machine-
+        # readable conflict carrying the subscription that already exists, so a
+        # retried payment webhook recovers the original instead of minting a second
+        # subscription or having to string-match an error message.
+        if custom_path:
+            existing = get_user_by_path(custom_path)
+            if existing:
+                return jsonify({'success': False, 'error': 'path_taken',
+                                'message': message,
+                                'subscription': _serialize(existing)}), 409
         return jsonify({'success': False, 'error': 'create_failed', 'message': message}), 400
     return jsonify({'success': True, 'message': message,
                     'subscription': _serialize(user)}), 201
@@ -180,9 +246,16 @@ def update_sub(sub_id):
     if 'name' in data:
         kwargs['name'] = (data.get('name') or '').strip()
     if 'duration_days' in data:
-        kwargs['duration_days'] = data.get('duration_days')
+        value, err = _require_int(data, 'duration_days', minimum=0,
+                                  maximum=USER_MAX_DURATION_DAYS)
+        if err:
+            return err
+        kwargs['duration_days'] = value
     if 'max_devices' in data:
-        kwargs['max_devices'] = data.get('max_devices')
+        value, err = _require_int(data, 'max_devices', minimum=0)
+        if err:
+            return err
+        kwargs['max_devices'] = value
     if 'note' in data:
         kwargs['note'] = (data.get('note') or '').strip()
     if 'path' in data:
@@ -204,7 +277,12 @@ def extend_sub(sub_id):
     if not get_user(sub_id):
         return _not_found()
     data = request.get_json(silent=True) or {}
-    return _mutation_result(*extend_user(sub_id, data.get('days')), sub_id)
+    days, err = _require_int(data, 'days', minimum=1, maximum=USER_MAX_DURATION_DAYS)
+    if err:
+        return err
+    if days is None:
+        return _bad_request('days', 'days is required.')
+    return _mutation_result(*extend_user(sub_id, days), sub_id)
 
 
 # ─── State transitions ───────────────────────────────────────────
@@ -240,7 +318,9 @@ def toggle_sub(sub_id):
     if not get_user(sub_id):
         return _not_found()
     data = request.get_json(silent=True) or {}
-    enabled = bool(data.get('enabled', True))
+    enabled, err = _require_bool(data, 'enabled', default=True)
+    if err:
+        return err
     return _mutation_result(*set_user_enabled(sub_id, enabled), sub_id)
 
 
@@ -263,9 +343,16 @@ def list_devices(sub_id):
 @require_api_token
 def reset_devices(sub_id):
     """Forget every device, freeing all slots."""
+    # Check existence separately: the service returns the same (False, message)
+    # shape for "no such subscription" and for an internal error, and reporting a
+    # database failure as 404 would tell the caller to drop a record that still
+    # exists.
+    if not get_user(sub_id):
+        return _not_found()
     ok, message = reset_user_devices(sub_id)
     if not ok:
-        return _not_found()
+        return jsonify({'success': False, 'error': 'internal_error',
+                        'message': message}), 500
     return jsonify({'success': True, 'message': message})
 
 
@@ -276,11 +363,18 @@ def reset_devices(sub_id):
 @require_api_token
 def delete_device(sub_id, device_id):
     """Kick a single device, freeing its slot."""
-    if not get_user(sub_id):
+    info = list_user_devices(sub_id)
+    if info is None:
         return _not_found()
+    # Establish up front whether the device exists, so a genuine failure below is
+    # reported as an internal error rather than as a misleading 404.
+    if device_id not in {d['id'] for d in info['devices']}:
+        return jsonify({'success': False, 'error': 'device_not_found',
+                        'message': 'Device not found.'}), 404
     ok, message = delete_user_device(sub_id, device_id)
     if not ok:
-        return jsonify({'success': False, 'error': 'not_found', 'message': message}), 404
+        return jsonify({'success': False, 'error': 'internal_error',
+                        'message': message}), 500
     return jsonify({'success': True, 'message': message})
 
 

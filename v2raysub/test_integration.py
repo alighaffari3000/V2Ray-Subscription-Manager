@@ -1452,6 +1452,59 @@ class TestMachineApi(IntegrationTestBase):
         self.assertEqual(sub['max_devices'], 2)
         self.assertEqual(sub['effective_status'], 'ACTIVE')
 
+    def test_create_with_duplicate_path_is_idempotent_conflict(self):
+        """A caller supplying its own deterministic path (an order id) must get a
+        retry-safe create: the duplicate is a distinct machine-readable conflict
+        carrying the existing subscription, so a retried payment webhook recovers
+        the original rather than minting a second one."""
+        self._set_token()
+        body = {'name': 'order-42', 'duration_days': 30, 'path': 'order000042'}
+        first = self.client.post('/api/v1/subs', data=json.dumps(body),
+                                 content_type='application/json', headers=self._auth())
+        self.assertEqual(first.status_code, 201)
+        first_id = json.loads(first.data)['subscription']['id']
+
+        retry = self.client.post('/api/v1/subs', data=json.dumps(body),
+                                 content_type='application/json', headers=self._auth())
+        self.assertEqual(retry.status_code, 409)
+        retry_body = json.loads(retry.data)
+        self.assertEqual(retry_body['error'], 'path_taken')
+        self.assertEqual(retry_body['subscription']['id'], first_id)
+
+        # A different failure must stay distinguishable from the conflict — including
+        # when it arrives together with the duplicate path, or a retry that fixed the
+        # real problem would read the 409 as "already created" and give up.
+        bad = self.client.post('/api/v1/subs',
+                               data=json.dumps({'name': 'x', 'duration_days': -5}),
+                               content_type='application/json', headers=self._auth())
+        self.assertEqual(bad.status_code, 400)
+        self.assertEqual(json.loads(bad.data)['error'], 'invalid_request')
+
+        both = self.client.post('/api/v1/subs',
+                                data=json.dumps({'name': 'x', 'path': 'order000042',
+                                                 'duration_days': -5}),
+                                content_type='application/json', headers=self._auth())
+        self.assertEqual(both.status_code, 400)
+        self.assertEqual(json.loads(both.data)['error'], 'invalid_request')
+
+        # Exactly one subscription exists.
+        listed = json.loads(self.client.get('/api/v1/subs', headers=self._auth()).data)
+        self.assertEqual(listed['count'], 1)
+
+    def test_create_colliding_with_legacy_path_is_not_a_conflict(self):
+        """A path clashing with the legacy global-paths table has no subscription to
+        hand back, so it must not be reported as a recoverable conflict."""
+        self._set_token()
+        from services.path_service import add_path
+        add_path('legacypath01')
+        resp = self.client.post('/api/v1/subs',
+                                data=json.dumps({'name': 'x', 'path': 'legacypath01'}),
+                                content_type='application/json', headers=self._auth())
+        self.assertEqual(resp.status_code, 400)
+        body = json.loads(resp.data)
+        self.assertEqual(body['error'], 'create_failed')
+        self.assertNotIn('subscription', body)
+
     def test_create_requires_name(self):
         self._set_token()
         resp = self.client.post('/api/v1/subs', data=json.dumps({'duration_days': 10}),
@@ -1592,6 +1645,62 @@ class TestMachineApi(IntegrationTestBase):
                                 content_type='application/json', headers=self._auth())
         self.assertEqual(json.loads(resp.data)['subscription']['duration_days'], 0)
 
+    def test_concurrent_extends_both_land(self):
+        """Two renewals arriving at once (a retried payment webhook, say) must both
+        count. A Python-side read-modify-write would have each read the same expiry
+        and write the same result, so the customer would pay twice and gain one
+        extension — the expiry is therefore computed inside the UPDATE itself."""
+        import threading
+        import database
+        import services.user_service as us
+
+        self._set_token()
+        sub_id = json.loads(self._create(days=30).data)['subscription']['id']
+        db = database.get_db()
+        db.execute("UPDATE users SET activated_at = datetime('now'), "
+                   "expire_at = datetime('now', '+30 day') WHERE id = ?", (sub_id,))
+        db.commit()
+        db.close()
+        before = us.get_user(sub_id)['remaining_seconds']
+
+        # Park each thread right after its SELECT so both have read the row before
+        # either writes — the interleaving that loses an update.
+        class SyncConn:
+            def __init__(self, real, barrier):
+                self._real, self._b, self._done = real, barrier, False
+
+            def execute(self, sql, *a, **k):
+                result = self._real.execute(sql, *a, **k)
+                if not self._done and sql.strip().upper().startswith('SELECT'):
+                    self._done = True
+                    try:
+                        self._b.wait(timeout=5)
+                    except Exception:
+                        pass
+                return result
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+        barrier = threading.Barrier(2)
+        real_get_db = database.get_db
+        us.get_db = lambda: SyncConn(real_get_db(), barrier)
+        try:
+            threads = [threading.Thread(target=us.extend_user, args=(sub_id, 30),
+                                        daemon=True) for _ in range(2)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(timeout=15)
+        finally:
+            us.get_db = real_get_db
+
+        after = us.get_user(sub_id)
+        gained = after['remaining_seconds'] - before
+        self.assertAlmostEqual(gained, 60 * 86400, delta=300,
+                               msg='both 30-day renewals must be counted')
+        self.assertEqual(after['duration_days'], 90)
+
     def test_extend_rejects_non_positive_days(self):
         self._set_token()
         sub_id = json.loads(self._create().data)['subscription']['id']
@@ -1600,6 +1709,103 @@ class TestMachineApi(IntegrationTestBase):
                                     data=json.dumps({'days': bad}),
                                     content_type='application/json', headers=self._auth())
             self.assertEqual(resp.status_code, 400, f'days={bad!r} should be rejected')
+
+    def test_extend_rejects_absurd_day_counts(self):
+        """SQLite's datetime() returns NULL past year 9999, which would store "no
+        expiry" on an activated subscription and leave it servable forever. A caller
+        confusing units (seconds for days) must be rejected, not silently granted."""
+        self._set_token()
+        sub_id = json.loads(self._create(days=30).data)['subscription']['id']
+        self.client.get(f"/sub/{json.loads(self.client.get(f'/api/v1/subs/{sub_id}', headers=self._auth()).data)['subscription']['path']}")
+        resp = self.client.post(f'/api/v1/subs/{sub_id}/extend',
+                                data=json.dumps({'days': 7776000}),
+                                content_type='application/json', headers=self._auth())
+        self.assertEqual(resp.status_code, 400)
+        import services.user_service as us
+        self.assertIsNotNone(us.get_user(sub_id)['expire_at'])
+
+    def test_extend_rejects_non_integer_days(self):
+        self._set_token()
+        sub_id = json.loads(self._create().data)['subscription']['id']
+        for bad in (True, 1.9, '30'):
+            resp = self.client.post(f'/api/v1/subs/{sub_id}/extend',
+                                    data=json.dumps({'days': bad}),
+                                    content_type='application/json', headers=self._auth())
+            self.assertEqual(resp.status_code, 400, f'days={bad!r} must be rejected')
+
+    def test_extend_paused_sub_keeps_the_frozen_remainder(self):
+        """A paused subscription's expiry is frozen with the real remainder held as
+        (expire_at - paused_at), and resume adds the whole paused span back. Extending
+        must not rebase to now, or the customer is gifted the entire pause."""
+        self._set_token()
+        import database
+        import services.user_service as us
+        sub_id = json.loads(self._create(days=30).data)['subscription']['id']
+        db = database.get_db()
+        db.execute("UPDATE users SET status = 'PAUSED', activated_at = datetime('now','-95 day'), "
+                   "paused_at = datetime('now','-100 day'), "
+                   "expire_at = datetime('now','-95 day') WHERE id = ?", (sub_id,))
+        db.commit()
+        db.close()
+
+        self.client.post(f'/api/v1/subs/{sub_id}/extend', data=json.dumps({'days': 30}),
+                         content_type='application/json', headers=self._auth())
+        self.client.post(f'/api/v1/subs/{sub_id}/resume', headers=self._auth())
+        remaining_days = us.get_user(sub_id)['remaining_seconds'] / 86400
+        self.assertAlmostEqual(remaining_days, 35, delta=1,
+                               msg='5 frozen days + 30 bought, not the 100-day pause')
+
+    def test_toggle_rejects_non_boolean(self):
+        """bool("false") is True, so coercing would turn a suspend into an enable."""
+        self._set_token()
+        import services.user_service as us
+        sub_id = json.loads(self._create().data)['subscription']['id']
+        us.set_user_enabled(sub_id, False)
+        for bad in ('false', 'False', 0, 'no'):
+            resp = self.client.post(f'/api/v1/subs/{sub_id}/toggle',
+                                    data=json.dumps({'enabled': bad}),
+                                    content_type='application/json', headers=self._auth())
+            self.assertEqual(resp.status_code, 400, f'enabled={bad!r} must be rejected')
+            self.assertEqual(us.get_user(sub_id)['status'], 'DISABLED')
+
+    def test_negative_max_devices_rejected(self):
+        """max_devices 0 means unlimited, so a negative value would lift the cap that
+        prices the plan rather than tighten it."""
+        self._set_token()
+        sub_id = json.loads(self._create(max_devices=2).data)['subscription']['id']
+        resp = self.client.patch(f'/api/v1/subs/{sub_id}',
+                                 data=json.dumps({'max_devices': -1}),
+                                 content_type='application/json', headers=self._auth())
+        self.assertEqual(resp.status_code, 400)
+        import services.user_service as us
+        self.assertEqual(us.get_user(sub_id)['max_devices'], 2)
+        create = self.client.post('/api/v1/subs',
+                                  data=json.dumps({'name': 'x', 'max_devices': -999}),
+                                  content_type='application/json', headers=self._auth())
+        self.assertEqual(create.status_code, 400)
+
+    def test_invalid_field_does_not_silently_drop_the_others(self):
+        """A rejected max_devices used to leave an unbound placeholder that killed the
+        whole UPDATE, so name/note/duration were dropped while the caller saw 400."""
+        self._set_token()
+        import services.user_service as us
+        sub_id = json.loads(self._create().data)['subscription']['id']
+        resp = self.client.patch(f'/api/v1/subs/{sub_id}',
+                                 data=json.dumps({'name': 'RENAMED', 'duration_days': 90,
+                                                  'max_devices': '3 devices'}),
+                                 content_type='application/json', headers=self._auth())
+        self.assertEqual(resp.status_code, 400)
+        user = us.get_user(sub_id)
+        self.assertNotEqual(user['name'], 'RENAMED')   # rejected as a whole, atomically
+        self.assertEqual(user['duration_days'], 30)
+
+    def test_non_ascii_token_is_rejected_not_a_server_error(self):
+        """compare_digest raises on non-ASCII str, which would turn this pre-auth,
+        rate-limit-exempt path into an unhandled 500."""
+        self._set_token()
+        resp = self.client.get('/api/v1/health',
+                               headers={'Authorization': 'Bearer café'})
+        self.assertEqual(resp.status_code, 401)
 
     # ── devices ──
     def test_list_and_reset_devices(self):
@@ -1643,12 +1849,43 @@ class TestMachineApi(IntegrationTestBase):
         self.assertTrue(sub['sub_url'].startswith('https://vpn.example.com/sub/'),
                         sub['sub_url'])
 
-    def test_public_base_url_rejects_scheme_less_value(self):
+    def test_public_base_url_requires_a_bare_origin(self):
+        """This value also builds the links shown in the admin panel, so a value like
+        'https://' (which yields 'https://sub/abc') must be refused, not stored."""
         self._login()
-        resp = self.client.post('/adminpanel/api/settings/public_base_url',
-                                data=json.dumps({'public_base_url': 'example.com'}),
-                                content_type='application/json')
-        self.assertEqual(resp.status_code, 400)
+
+        def save(value):
+            return self.client.post('/adminpanel/api/settings/public_base_url',
+                                    data=json.dumps({'public_base_url': value}),
+                                    content_type='application/json').status_code
+
+        for bad in ('example.com', 'https://', 'https://a.example/?x=1',
+                    'https://a b.example', 'https://a.example/panel', 'ftp://a.example'):
+            self.assertEqual(save(bad), 400, f'{bad!r} must be rejected')
+        for good in ('https://a.example', 'HTTPS://a.example',
+                     'https://a.example:8443', 'http://a.example/', ''):
+            self.assertEqual(save(good), 200, f'{good!r} must be accepted')
+
+    def test_base_url_is_resolved_once_per_request(self):
+        """Building one link per row used to re-read the setting — and open a fresh
+        SQLite connection — for every subscription in the list."""
+        import sqlite3
+        self._set_token()
+        for i in range(12):
+            self._create(name=f'u{i}')
+        real_connect = sqlite3.connect
+        count = [0]
+
+        def counting(*args, **kwargs):
+            count[0] += 1
+            return real_connect(*args, **kwargs)
+
+        sqlite3.connect = counting
+        try:
+            self.client.get('/api/v1/subs', headers=self._auth())
+        finally:
+            sqlite3.connect = real_connect
+        self.assertLess(count[0], 12, f'opened {count[0]} connections for 12 rows')
 
 
 if __name__ == '__main__':

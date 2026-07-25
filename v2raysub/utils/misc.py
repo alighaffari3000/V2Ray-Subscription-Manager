@@ -39,12 +39,33 @@ def get_public_base_url(request):
     localhost — broken for every customer, and broken silently.
 
     Empty setting (the default, and every existing install) = unchanged behaviour.
+
+    The resolved value is memoised on Flask's request-scoped ``g``: callers build
+    one link per row, and without the cache a list of N subscriptions would open N
+    SQLite connections just to re-read the same setting.
     """
-    from database import get_setting  # local import: avoids an import cycle at module load
+    # Imported lazily so this module stays importable without an app/DB present.
+    from database import get_setting
+    try:
+        from flask import g
+        cached = getattr(g, '_public_base_url', None)
+        if cached is not None:
+            return cached
+    except Exception:      # no application context (e.g. a direct unit-test call)
+        g = None
+
     configured = (get_setting('public_base_url', '') or '').strip()
     if not configured:
-        return get_base_url(request)
-    return configured if configured.endswith('/') else configured + '/'
+        resolved = get_base_url(request)
+    else:
+        resolved = configured if configured.endswith('/') else configured + '/'
+
+    if g is not None:
+        try:
+            g._public_base_url = resolved
+        except Exception:
+            pass
+    return resolved
 
 
 def network_key(ip):

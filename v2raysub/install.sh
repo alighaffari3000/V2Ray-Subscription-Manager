@@ -503,6 +503,33 @@ else
     fi
 fi
 
+# ── Pin the public URL when the port is non-standard ──────────────
+# The panel derives customer subscription links from the incoming request, but
+# nginx forwards `Host $host`, which drops the port. On a non-default port every
+# generated link would silently lose ":$PORT" and be unreachable for customers.
+# We know the real public URL at this point, so record it once. Deliberately
+# skipped on 80/443, where request-derived links correctly follow the domain even
+# if it later changes — and never written over a value an admin already set.
+# Placed before the ownership/permission step below so the SQLite WAL files this
+# write creates don't stay root-owned.
+if [ -n "$DOMAIN" ] && [ -n "$PORT" ]; then
+    if [ "$SSL_MODE" = "none" ]; then
+        PUBLIC_SCHEME="http"
+    else
+        PUBLIC_SCHEME="https"
+    fi
+    if ! { { [ "$PUBLIC_SCHEME" = "http" ] && [ "$PORT" = "80" ]; } || \
+           { [ "$PUBLIC_SCHEME" = "https" ] && [ "$PORT" = "443" ]; }; }; then
+        python3 - "$PUBLIC_SCHEME://$DOMAIN:$PORT" <<'PYEOF' || true
+import sys
+from database import get_setting, set_setting
+if not (get_setting('public_base_url', '') or '').strip():
+    set_setting('public_base_url', sys.argv[1])
+    print("    Pinned the panel's public URL to %s (non-standard port)." % sys.argv[1])
+PYEOF
+    fi
+fi
+
 echo -e "${GREEN}[8/8] Installing the systemd service...${NC}"
 
 # On a fresh install, gunicorn will silently fail to bind if port 5000 is
@@ -601,7 +628,15 @@ if [ -f "$PROJECT_DIR/.env" ]; then
     chmod 600 "$PROJECT_DIR/.env"
 fi
 if [ -f "$PROJECT_DIR/database.db" ]; then
-    chmod 644 "$PROJECT_DIR/database.db"
+    # 640, not 644: the database holds the machine-API token, which grants full
+    # control over every subscription. World-readable would hand that credential
+    # to any unprivileged local account. www-data owns the file, so the service
+    # still reads and writes it.
+    chmod 640 "$PROJECT_DIR/database.db"
+    # The WAL sidecars carry the same rows and are left 755 by the recursive
+    # chmod above. SQLite recreates them as needed, so tightening is safe.
+    chmod 640 "$PROJECT_DIR/database.db-wal" 2>/dev/null || true
+    chmod 640 "$PROJECT_DIR/database.db-shm" 2>/dev/null || true
 fi
 
 if ! step 60 "reload systemd" systemctl daemon-reload; then
@@ -694,5 +729,9 @@ else
     echo ""
     echo -e "${GREEN}Subscription link:${NC}"
     echo -e "  ${YELLOW}$BASE_URL/sub/freeconfigs${NC}"
+    echo ""
+    echo -e "${GREEN}Machine API${NC} (optional — for an external sales bot or script):"
+    echo -e "  URL:       ${YELLOW}$BASE_URL/api/v1${NC}"
+    echo -e "  Disabled until you generate a token in the panel's Settings tab."
 fi
 echo "=========================================="

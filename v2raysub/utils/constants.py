@@ -42,6 +42,13 @@ RANDOM_PATH_LENGTH = 16
 # طول مسیر تصادفی تولیدشده برای کاربران
 USER_PATH_LENGTH = 12
 
+# Upper bound on a subscription's length, in days (~100 years). Far beyond any
+# real plan, but a hard ceiling matters: SQLite's date functions return NULL once
+# a computed date passes year 9999, which would store a NULL expiry on an
+# activated subscription — i.e. one that can never expire again. A caller that
+# confuses units (sending seconds instead of days) hits exactly that.
+USER_MAX_DURATION_DAYS = 36500
+
 # Known client identifiers. Keep in sync with utils/user_agent.parse_user_agent,
 # the single place that classifies a raw User-Agent into one of these names.
 CLIENTS = [
