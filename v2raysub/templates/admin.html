@@ -1029,6 +1029,7 @@
                             <tr>
                                 <th>زمان شروع</th>
                                 <th>نوع اسکن</th>
+                                <th>منبع</th>
                                 <th style="text-align: center;">مدت زمان</th>
                                 <th style="text-align: center;">یافت شده</th>
                                 <th style="text-align: center;">اضافه شده</th>
@@ -1043,6 +1044,9 @@
                                     <td>{{ run.started_at }}</td>
                                     <td>
                                         {% if run.scan_type == 'discovery' %}کشف کانفیگ{% else %}بررسی سلامت{% endif %}
+                                    </td>
+                                    <td>
+                                        {% if run.source_scope %}{{ run.source_scope }}{% else %}<span style="opacity: 0.5;">—</span>{% endif %}
                                     </td>
                                     <td style="text-align: center;">{{ run.duration_ms }} ms</td>
                                     <td style="text-align: center;">{{ run.discovered_count }}</td>
@@ -1065,7 +1069,7 @@
                                 {% endfor %}
                             {% else %}
                                 <tr>
-                                    <td colspan="7" style="text-align: center; opacity: 0.6; padding: 20px;">هیچ سابقه اسکنی ثبت نشده است</td>
+                                    <td colspan="8" style="text-align: center; opacity: 0.6; padding: 20px;">هیچ سابقه اسکنی ثبت نشده است</td>
                                 </tr>
                             {% endif %}
                         </tbody>

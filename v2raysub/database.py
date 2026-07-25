@@ -195,6 +195,7 @@ def init_db():
     _add_column_if_missing(db, 'scan_history', 'deleted_configs', 'INTEGER DEFAULT 0')
     _add_column_if_missing(db, 'scan_history', 'duplicate_configs', 'INTEGER DEFAULT 0')
     _add_column_if_missing(db, 'scan_history', 'scan_duration_ms', 'INTEGER DEFAULT 0')
+    _add_column_if_missing(db, 'scan_history', 'source_scope', 'TEXT')
 
     # Raw number of configs the subscription link itself contains, refreshed on
     # each scan by fetching+counting the URL directly. This is independent of how

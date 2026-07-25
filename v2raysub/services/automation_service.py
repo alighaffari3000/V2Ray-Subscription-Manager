@@ -677,7 +677,7 @@ class MetricsRecorder:
     """Records logs and metrics in auto_sources and scan_history tables."""
     
     @staticmethod
-    def record_scan_history(scan_type, started_at_str, duration_ms, stats_dict, status, error_msg=None, worker_version=None, job_id=None):
+    def record_scan_history(scan_type, started_at_str, duration_ms, stats_dict, status, error_msg=None, worker_version=None, job_id=None, source_scope=None):
         db = get_db()
         try:
             finished_at_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -699,15 +699,17 @@ class MetricsRecorder:
                     status, error_message, worker_version, engine_version,
                     job_id, total_sources, successful_sources, failed_sources,
                     discovered_configs, working_configs, imported_configs,
-                    disabled_configs, deleted_configs, duplicate_configs, scan_duration_ms
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                    disabled_configs, deleted_configs, duplicate_configs, scan_duration_ms,
+                    source_scope
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
                 (
                     scan_type, started_at_str, finished_at_str, duration_ms,
                     discovered_configs, imported_configs, disabled_configs, deleted_configs,
                     status, error_msg, worker_version, "V2RayDAR Engine",
                     job_id, total_sources, successful_sources, failed_sources,
                     discovered_configs, working_configs, imported_configs,
-                    disabled_configs, deleted_configs, duplicate_configs, duration_ms
+                    disabled_configs, deleted_configs, duplicate_configs, duration_ms,
+                    source_scope
                 )
             )
             inserted_id = cursor.lastrowid
@@ -1091,9 +1093,23 @@ class AutomationService:
         started_at_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         job_id = uuid.uuid4().hex
         set_cancel_requested(False)
-        
+
         print(f"[{job_id}] Automation Scan started. Mode: {mode}")
-        
+
+        # Which source(s) this run covers, for the "منبع" column in scan history:
+        # a single source name for the per-source "test now" button, "همه منابع"
+        # for a full discovery sweep, or None for a health check (it re-checks
+        # already-imported configs regardless of which source they came from).
+        source_scope = None
+        if mode == 'discovery':
+            if source_id is not None:
+                db = get_db()
+                row = db.execute('SELECT name FROM auto_sources WHERE id = ?', (source_id,)).fetchone()
+                db.close()
+                source_scope = row['name'] if row else None
+            else:
+                source_scope = 'همه منابع'
+
         # Record running state in database and get scan_id
         scan_id = MetricsRecorder.record_scan_history(
             scan_type=mode,
@@ -1101,7 +1117,8 @@ class AutomationService:
             duration_ms=0,
             stats_dict={},
             status='running',
-            job_id=job_id
+            job_id=job_id,
+            source_scope=source_scope
         )
         
         try:
