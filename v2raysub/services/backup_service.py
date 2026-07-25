@@ -25,6 +25,11 @@ import utils.constants as constants
 # overwrite a locally-configured secret (see restore_backup).
 SENSITIVE_SETTING_KEYS = {
     'backup_telegram_bot_token',
+    # Machine-API token: grants full create/delete control over subscriptions to
+    # any holder, so it must never sit in cleartext inside a standard backup
+    # (those are delivered to Telegram), and a stale value from an old backup
+    # must not silently break the live external client on restore.
+    'api_token',
 }
 
 # Top-level paths permitted to be written back to disk during restore, derived

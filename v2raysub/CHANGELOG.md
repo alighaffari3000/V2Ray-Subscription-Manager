@@ -12,6 +12,17 @@
 
 ## [Unreleased]
 
+## [1.17.1] - 2026-07-25
+
+### Fixed
+- **توکن API از بکاپ‌های استاندارد حذف (redact) می‌شود.** `api_token` به فهرست
+  کلیدهای حساس اضافه شد. پیش از این، توکنِ API ماشینی به‌صورت متن‌ساده داخل
+  بکاپ استاندارد (رمزنگاری‌نشده) قرار می‌گرفت — و این بکاپ‌ها به‌صورت خودکار به
+  تلگرام ارسال می‌شوند؛ یعنی هر کسی که فایل بکاپ را داشت می‌توانست اشتراک بسازد
+  یا اشتراک‌های موجود را حذف کند. همچنین موقع بازیابی از یک بکاپ قدیمی، مقدار
+  کهنه روی توکن فعلی نوشته می‌شد و کلاینت خارجی بی‌صدا از کار می‌افتاد؛ اکنون
+  توکنِ تنظیم‌شده‌ی محلی حفظ می‌شود.
+
 ## [1.17.0] - 2026-07-25
 
 ### Added
@@ -374,7 +385,8 @@
 - نمایش نسخه در پایان نصب/آپدیت: «Version X.Y.Z installed/updated successfully».
 - مدیریت کاربران (user-management) و محدودیت تعداد دستگاه (device-limit).
 
-[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.17.0...HEAD
+[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.17.1...HEAD
+[1.17.1]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.17.0...v1.17.1
 [1.17.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.16.0...v1.17.0
 [1.13.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.11.1...v1.12.0

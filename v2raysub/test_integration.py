@@ -897,6 +897,34 @@ class TestBackupRestore(IntegrationTestBase):
         resp = self.client.post('/adminpanel/api/users', data=payload)
         return json.loads(resp.data.decode('utf-8'))
 
+    def test_api_token_redacted_from_standard_backup(self):
+        """The machine-API token grants full control over subscriptions, so it must
+        never sit in cleartext inside a standard (unencrypted) backup — those are
+        auto-delivered to Telegram."""
+        self._login()
+        from database import set_setting
+        secret = 'super-secret-machine-token-xyz'
+        set_setting('api_token', secret)
+
+        resp = self.client.post('/adminpanel/api/backup/create',
+                                data={'backup_type': 'standard'})
+        data = json.loads(resp.data)
+        self.assertTrue(data['success'])
+
+        import zipfile
+        from services.backup_service import BackupService
+        path = os.path.join(BackupService.get_backup_dir(), data['filename'])
+        try:
+            with zipfile.ZipFile(path) as z:
+                raw = z.read('database.json').decode('utf-8')
+            self.assertIn('api_token', raw)      # the key is still exported…
+            self.assertNotIn(secret, raw)        # …but its value is redacted
+        finally:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
     def test_manual_backup_creation_and_download(self):
         self._login()
         
