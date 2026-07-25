@@ -1100,7 +1100,7 @@
                                 <th>نام منبع</th>
                                 <th>آدرس URL</th>
                                 <th style="text-align: center;" width="90">اولویت</th>
-                                <th style="text-align: center;" width="90" title="کل تعداد کانفیگ‌های این منبع که هم‌اکنون در لیست هستند (فعال + خاموش)">کل کانفیگ</th>
+                                <th style="text-align: center;" width="90" title="کل کانفیگ‌هایی که تا کنون از این منبع استخراج شده‌اند (فعال + خاموش + حذف‌شده)">کل کانفیگ</th>
                                 <th style="text-align: center;" width="110" title="تعداد کانفیگ‌های این منبع که هم‌اکنون در لیست کانفیگ‌های فعال هستند">کانفیگ فعال</th>
                                 <th style="text-align: center;" width="140">وضعیت اسکن</th>
                                 <th style="text-align: center;" width="90">فعال</th>
@@ -1118,6 +1118,7 @@
                                     </td>
                                     {% set counts = source_config_counts.get(src.name, {}) %}
                                     {% set enabled_configs = counts.get('enabled', 0) %}
+                                    {% set active_configs = counts.get('active', 0) %}
                                     {% set total_configs = counts.get('total', 0) %}
                                     <td style="text-align: center;">
                                         <strong style="font-size: 15px;">{{ total_configs }}</strong>
@@ -1129,8 +1130,8 @@
                                             <strong style="color: #e74c3c; font-size: 15px;">0</strong>
                                             <div style="color: #e74c3c; font-size: 10px; margin-top: 3px;">بی‌خاصیت</div>
                                         {% endif %}
-                                        {% if total_configs > enabled_configs %}
-                                            <div style="opacity: 0.6; font-size: 10px; margin-top: 3px;" title="کانفیگ‌های این منبع که در لیست هستند ولی خاموش شده‌اند">{{ total_configs - enabled_configs }} خاموش</div>
+                                        {% if active_configs > enabled_configs %}
+                                            <div style="opacity: 0.6; font-size: 10px; margin-top: 3px;" title="کانفیگ‌های این منبع که در لیست هستند ولی خاموش شده‌اند">{{ active_configs - enabled_configs }} خاموش</div>
                                         {% endif %}
                                     </td>
                                     <td style="text-align: center; font-size: 11px;">

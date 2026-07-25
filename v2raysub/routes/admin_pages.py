@@ -87,17 +87,28 @@ def admin():
     auto_sources = db.execute('SELECT * FROM auto_sources ORDER BY priority DESC, created_at ASC').fetchall()
     scan_history = db.execute('SELECT * FROM scan_history ORDER BY started_at DESC LIMIT 5').fetchall()
 
-    # How many configs each source currently contributes to the active list, so
-    # a source that never yields anything is visible and can be dropped.
-    # configs.source holds the auto_sources.name written at import time.
+    # Per-source config counts, so a source that never yields anything is visible
+    # and can be dropped. configs.source holds the auto_sources.name written at
+    # import time; deleted configs are soft-deleted (status='deleted') and keep
+    # their source, so they still count toward the source's overall total.
+    #   total   = every config this source ever produced that still lives in the
+    #             table (active + soft-deleted) -> the "کل کانفیگ" column.
+    #   active  = configs currently in the active list (enabled + disabled).
+    #   enabled = active configs that are switched on -> the "کانفیگ فعال" column.
+    # "خاموش" is derived in the template as active - enabled.
     source_config_counts = {
-        row['source']: {'total': row['total'], 'enabled': row['enabled']}
+        row['source']: {
+            'total': row['total'],
+            'active': row['active'],
+            'enabled': row['enabled'],
+        }
         for row in db.execute(
             """SELECT source,
                       COUNT(*) AS total,
-                      SUM(CASE WHEN is_enabled = 1 THEN 1 ELSE 0 END) AS enabled
+                      SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active,
+                      SUM(CASE WHEN status = 'active' AND is_enabled = 1 THEN 1 ELSE 0 END) AS enabled
                  FROM configs
-                WHERE status = 'active' AND source IS NOT NULL AND source != ''
+                WHERE source IS NOT NULL AND source != ''
                 GROUP BY source"""
         ).fetchall()
     }
