@@ -253,7 +253,7 @@
         /* ══ Forms ══ */
         .form-group { margin-bottom: 18px; }
         .form-group label { display: block; margin-bottom: 8px; color: var(--text-secondary); font-weight: 500; font-size: 14px; }
-        .form-group textarea, input[type="text"], input[type="number"], input[type="password"], select, textarea {
+        .form-group textarea, input[type="text"], input[type="number"], input[type="password"], input[type="url"], select, textarea {
             width: 100%; padding: 11px 13px;
             border: 1px solid var(--input-border);
             border-radius: var(--radius-sm);
@@ -1100,6 +1100,7 @@
                                 <th>نام منبع</th>
                                 <th>آدرس URL</th>
                                 <th style="text-align: center;" width="90">اولویت</th>
+                                <th style="text-align: center;" width="90" title="کل تعداد کانفیگ‌های این منبع که هم‌اکنون در لیست هستند (فعال + خاموش)">کل کانفیگ</th>
                                 <th style="text-align: center;" width="110" title="تعداد کانفیگ‌های این منبع که هم‌اکنون در لیست کانفیگ‌های فعال هستند">کانفیگ فعال</th>
                                 <th style="text-align: center;" width="140">وضعیت اسکن</th>
                                 <th style="text-align: center;" width="90">فعال</th>
@@ -1118,6 +1119,9 @@
                                     {% set counts = source_config_counts.get(src.name, {}) %}
                                     {% set enabled_configs = counts.get('enabled', 0) %}
                                     {% set total_configs = counts.get('total', 0) %}
+                                    <td style="text-align: center;">
+                                        <strong style="font-size: 15px;">{{ total_configs }}</strong>
+                                    </td>
                                     <td style="text-align: center;">
                                         {% if enabled_configs > 0 %}
                                             <strong style="color: #2ecc71; font-size: 15px;">{{ enabled_configs }}</strong>
