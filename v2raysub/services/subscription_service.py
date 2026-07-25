@@ -44,7 +44,10 @@ def generate_subscription_content(user=None):
         config_lines.append(f'trojan://status@127.0.0.1:443#{quote(days_text)}')
 
     for i, config in enumerate(configs, 1):
-        remark = get_subscription_remark(i, config['config_text'], config['config_type'])
+        # country_code is present on rows from the migrated schema; guard the key
+        # so an un-migrated DB (or a stubbed row) can't raise here.
+        country_code = config['country_code'] if 'country_code' in config.keys() else None
+        remark = get_subscription_remark(i, config['config_text'], config['config_type'], country_code)
         formatted_config = format_config_remark(config['config_text'], config['config_type'], remark)
         config_lines.append(formatted_config)
 

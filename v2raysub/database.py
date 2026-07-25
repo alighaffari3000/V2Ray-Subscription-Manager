@@ -176,6 +176,11 @@ def init_db():
     _add_column_if_missing(db, 'configs', 'latency', 'INTEGER')
     _add_column_if_missing(db, 'configs', 'consecutive_failures', 'INTEGER DEFAULT 0')
     _add_column_if_missing(db, 'configs', 'health_status', "TEXT DEFAULT 'unknown'")
+    # ISO 3166-1 alpha-2 country code detected by the scan engine (GeoIP of the
+    # server endpoint). Used to stamp a country flag on the config's display name
+    # even when the config's own remark carries no flag. NULL for manual configs
+    # and for auto configs discovered before this column existed.
+    _add_column_if_missing(db, 'configs', 'country_code', 'TEXT')
     _add_column_if_missing(db, 'subscription_logs', 'status', "TEXT NOT NULL DEFAULT 'SUCCESS'")
     _add_column_if_missing(db, 'subscription_logs', 'request_path', 'TEXT')
     

@@ -8,7 +8,8 @@ from utils.config_parser import (
     extract_remark,
     get_config_identity,
     format_config_remark,
-    get_subscription_remark
+    get_subscription_remark,
+    country_code_to_flag
 )
 
 def parse_configs(text):
@@ -73,6 +74,9 @@ def get_all_configs_for_admin():
     for row in configs_rows:
         c = dict(row)
         c['remark'] = clean_remark(extract_remark(c['config_text'], c['config_type']))
+        # Flag the engine (GeoIP) detected for this config, for at-a-glance
+        # verification in the panel. Empty string when no country was detected.
+        c['country_flag'] = country_code_to_flag(c.get('country_code'))
         configs.append(c)
     return configs
 

@@ -25,6 +25,19 @@ def extract_flags(text):
     flags = re.findall(flag_pattern, text)
     return "".join(flags) if flags else ""
 
+def country_code_to_flag(code):
+    """تبدیل کد دوحرفی کشور (ISO 3166-1 alpha-2 مثل «DE») به ایموجی پرچم (🇩🇪).
+
+    هر حرف A–Z به نویسه‌ی Regional Indicator متناظرش نگاشت می‌شود. ورودی نامعتبر
+    (خالی، غیر دوحرفی، یا شامل نویسه‌ی غیر A–Z) رشته‌ی خالی برمی‌گرداند.
+    """
+    if not code:
+        return ""
+    code = code.strip().upper()
+    if len(code) != 2 or not all('A' <= ch <= 'Z' for ch in code):
+        return ""
+    return "".join(chr(0x1F1E6 + (ord(ch) - ord('A'))) for ch in code)
+
 def clean_remark(remark):
     """حذف شماره‌گذاری‌های قبلی از ابتدای نام"""
     # حذف الگوهایی مثل "1. ", "10 - ", "5 "
@@ -154,17 +167,24 @@ def format_config_remark(config_text, config_type, new_remark):
         
     return config_text
 
-def get_subscription_remark(index, config_text, config_type):
+def get_subscription_remark(index, config_text, config_type, country_code=None):
     """
-    تولید نام کانفیگ برای سابسکریپشن
-    اگر در نام اصلی کانفیگ پرچم کشور وجود داشته باشد، آن را حفظ می‌کند.
+    تولید نام کانفیگ برای سابسکریپشن.
+
+    اولویت انتخاب پرچم:
+      ۱) کشوری که موتور اسکن (GeoIP) تشخیص داده — «تشخیص خودمان» و معتبرترین منبع.
+      ۲) اگر GeoIP نداشتیم، پرچمی که خودِ نام اصلی کانفیگ داشته باشد حفظ می‌شود.
+      ۳) در غیر این صورت فقط شماره‌ی ردیف.
     """
     try:
+        geo_flag = country_code_to_flag(country_code)
+        if geo_flag:
+            return f"{geo_flag} {index}"
         raw_remark = extract_remark(config_text, config_type)
         flags_str = extract_flags(raw_remark)
         if flags_str:
             return f"{flags_str} {index}"
     except Exception as e:
         print(f"Error in get_subscription_remark: {e}")
-        
+
     return f"{index}"

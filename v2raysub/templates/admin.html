@@ -1235,7 +1235,7 @@ hysteria2://..." required></textarea>
                                 {% endif %}
                             </td>
                             <td>
-                                <div class="config-remark">{{ config.remark }}</div>
+                                <div class="config-remark">{% if config.country_flag %}<span title="کشور تشخیص‌داده‌شده: {{ config.country_code }}">{{ config.country_flag }}</span> {% endif %}{{ config.remark }}</div>
                                 <div class="config-text" title="{{ config.config_text }}">
                                     {{ config.config_text }}
                                 </div>
