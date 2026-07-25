@@ -14,7 +14,11 @@ User=www-data
 Group=www-data
 WorkingDirectory=/home/v2ray-sub
 Environment="PATH=/home/v2ray-sub/venv/bin"
-ExecStart=/home/v2ray-sub/venv/bin/gunicorn --workers 2 --bind 127.0.0.1:5000 app:app
+# --timeout kills a worker that hangs past 60s instead of leaving it stuck
+# until a manual restart. --max-requests recycles each worker after ~500
+# requests (jittered) so a slow per-request memory leak can't accumulate
+# indefinitely.
+ExecStart=/home/v2ray-sub/venv/bin/gunicorn --workers 2 --bind 127.0.0.1:5000 --timeout 60 --graceful-timeout 30 --max-requests 500 --max-requests-jitter 50 app:app
 
 # امنیت
 PrivateTmp=true

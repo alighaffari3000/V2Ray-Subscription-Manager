@@ -403,6 +403,14 @@ fi
 echo -e "${GREEN}[6/8] Initializing the database...${NC}"
 python3 -c "from app_factory import create_app; create_app()"
 
+# Shared rate-limit zone, written unconditionally (idempotent, harmless if
+# already present): without it a request flood hits gunicorn's 3 workers
+# directly and queues everything else behind it, well before the app's own
+# Redis-backed limiter ever sees the requests. 10r/s per IP with a 20-request
+# burst is generous for normal browsing/API use but caps a flood.
+printf 'limit_req_zone $binary_remote_addr zone=v2raysub:10m rate=10r/s;\n' \
+    > /etc/nginx/conf.d/v2ray-sub-ratelimit.conf
+
 if [ "$EXISTING_INSTALL" = "0" ]; then
     echo -e "${GREEN}[7/8] Configuring Nginx and SSL for $DOMAIN...${NC}"
 
@@ -460,6 +468,8 @@ if [ "$EXISTING_INSTALL" = "0" ]; then
     add_header Referrer-Policy "no-referrer-when-downgrade";
 
     location / {
+        limit_req zone=v2raysub burst=20 nodelay;
+
         proxy_pass http://127.0.0.1:5000;
 
         proxy_set_header Host $host;
@@ -490,6 +500,9 @@ if [ "$EXISTING_INSTALL" = "0" ]; then
     systemctl restart nginx
 else
     echo -e "${GREEN}[7/8] Nginx/SSL already configured — leaving as-is.${NC}"
+    echo -e "${YELLOW}    Rate-limit zone written to /etc/nginx/conf.d/v2ray-sub-ratelimit.conf.${NC}"
+    echo -e "${YELLOW}    Add 'limit_req zone=v2raysub burst=20 nodelay;' to your existing${NC}"
+    echo -e "${YELLOW}    location block and reload nginx to enable it.${NC}"
     # Re-derive these purely for the closing banner; nothing here is written.
     # sed, not grep -P: PCRE needs a UTF-8 locale that a stripped-down VPS
     # image may not have, and this only needs to work, not be clever.
@@ -602,7 +615,12 @@ write_file /etc/systemd/system/v2ray-sub.service \
     "# modifier, both of which follow this process's timezone. The servers run on" \
     "# UTC; pin the app to Tehran so the panel shows local time." \
     "Environment=TZ=Asia/Tehran" \
-    "ExecStart=$PROJECT_DIR/venv/bin/gunicorn --workers 3 --bind 127.0.0.1:5000 app:app" \
+    "# --timeout kills a worker that hangs past 60s (e.g. a stuck subprocess" \
+    "# call) instead of leaving it stuck until the next manual restart." \
+    "# --max-requests recycles each worker after ~500 requests (jittered so" \
+    "# workers don't all recycle at once), capping how much a slow per-request" \
+    "# memory leak can accumulate before it's reclaimed." \
+    "ExecStart=$PROJECT_DIR/venv/bin/gunicorn --workers 3 --bind 127.0.0.1:5000 --timeout 60 --graceful-timeout 30 --max-requests 500 --max-requests-jitter 50 app:app" \
     "Restart=always" \
     "" \
     "# Discovery/health-check scans shell out to the V2RayDAR worker, which can" \
@@ -616,6 +634,15 @@ write_file /etc/systemd/system/v2ray-sub.service \
     "" \
     "[Install]" \
     "WantedBy=multi-user.target"
+
+# Cap journald's on-disk footprint: StandardOutput=journal above means the
+# app's logs (plus the unbuffered scan output) all land there, and without a
+# cap they grow until the disk fills, which can crash the whole VPS rather
+# than just this service. 200M is generous for troubleshooting without being
+# able to starve a small VPS's disk.
+mkdir -p /etc/systemd/journald.conf.d
+printf '[Journal]\nSystemMaxUse=200M\n' > /etc/systemd/journald.conf.d/v2ray-sub.conf
+step 30 "cap journald disk usage" systemctl restart systemd-journald || true
 
 # www-data must own the project so it can write the database and lock files.
 # Generous timeout: on a source-build server, V2RayDAR-main/target holds tens

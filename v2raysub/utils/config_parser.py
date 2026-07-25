@@ -4,7 +4,7 @@
 import base64
 import json
 import re
-from urllib.parse import urlparse, urlunparse, quote, unquote
+from urllib.parse import urlparse, urlunparse, quote, unquote, parse_qsl
 
 def safe_b64decode(b64_str):
     """رمزگشایی ایمن base64 با تصحیح پدینگ و نویسه‌های URL-safe"""
@@ -24,31 +24,60 @@ CONFIG_SCHEME_RE = re.compile(
     re.IGNORECASE,
 )
 
-def _count_scheme_lines(text):
-    """تعداد خطوطی که با یک اسکیمای کانفیگ شناخته‌شده شروع می‌شوند."""
-    return sum(1 for line in text.splitlines() if CONFIG_SCHEME_RE.match(line.strip()))
+def _scheme_lines(text):
+    """خطوطی (strip‌شده) که با یک اسکیمای کانفیگ شناخته‌شده شروع می‌شوند."""
+    return [line.strip() for line in text.splitlines() if CONFIG_SCHEME_RE.match(line.strip())]
+
+def _config_identity_key(line):
+    """کلید یکتاییِ یک کانفیگ برای dedup.
+
+    نامِ نمایشی (بخش بعد از #) و ترتیبِ پارامترهای query را نادیده می‌گیرد تا دو
+    کانفیگی که فقط در نام یا چیدمانِ پارامترها فرق دارند ولی به همان سرور و همان
+    تنظیمات وصل می‌شوند، یکی شمرده شوند (رفتار مشابه کلاینت‌هایی مثل v2rayN). در
+    صورت خطای پارس، کل خط به‌عنوان کلید برمی‌گردد (محافظه‌کارانه — چیزی به‌اشتباه
+    ادغام نمی‌شود).
+    """
+    try:
+        if line.lower().startswith('vmess://'):
+            data = json.loads(safe_b64decode(line[8:]) or '{}')
+            data.pop('ps', None)  # نام نمایشی، در هویت فنی نقشی ندارد
+            return 'vmess|' + json.dumps({k: str(v).lower() for k, v in sorted(data.items())})
+        parsed = urlparse(line)
+        scheme = (parsed.scheme or '').lower()
+        if scheme == 'hy2':
+            scheme = 'hysteria2'  # نرمال‌سازیِ نام مستعارِ hysteria2
+        host = (parsed.hostname or '').lower()
+        port = str(parsed.port or '')
+        userinfo = unquote(parsed.username or '').lower()
+        query = tuple(sorted((k.lower(), unquote(v).lower()) for k, v in parse_qsl(parsed.query)))
+        return (scheme, host, port, userinfo, query)
+    except Exception:
+        return line
 
 def count_configs_in_text(raw_text):
-    """تعداد کانفیگ‌های داخل بدنه‌ی خام یک سابسکریپشن را می‌شمارد.
+    """تعداد کانفیگ‌های *یکتای* داخل بدنه‌ی خام یک سابسکریپشن را می‌شمارد.
 
     بدنه ممکن است متن خامِ خط‌به‌خط باشد (گاهی با خط‌های هدر مثل
-    ``#profile-title``) یا کل‌بدنه base64. اول خطوط را مستقیم می‌شماریم؛ اگر هیچ
-    کانفیگی پیدا نشد، یک‌بار کل بدنه را base64-decode کرده و دوباره می‌شماریم.
-    (بدون تست سلامت — فقط شمارش خام «چند کانفیگ در این لینک هست».)
+    ``#profile-title``) یا کل‌بدنه base64. اول خطوط کانفیگ را مستقیم استخراج
+    می‌کنیم؛ اگر هیچ کانفیگی پیدا نشد، یک‌بار کل بدنه را base64-decode کرده و
+    دوباره تلاش می‌کنیم. سپس بر اساس هویتِ فنیِ هر کانفیگ (بدون نامِ نمایشی و
+    مستقل از ترتیب پارامترها) dedup می‌کنیم تا دو کانفیگِ هم‌سرور که فقط در نام
+    فرق دارند دوبار شمرده نشوند. (بدون تست سلامت — فقط شمارشِ «چند کانفیگِ یکتا
+    در این لینک هست».)
 
     نکته: نباید برای تشخیص base64 به «search»ِ رجکسِ ^-دار تکیه کرد؛ آن رجکس
     بدون MULTILINE فقط موقعیت صفر را چک می‌کند و روی بدنه‌ای که با خط هدر شروع
-    می‌شود شکست می‌خورد. شمارشِ مستقیمِ خطوط این مشکل را ندارد.
+    می‌شود شکست می‌خورد. استخراجِ مستقیمِ خطوط این مشکل را ندارد.
     """
     if not raw_text:
         return 0
     text = raw_text.strip()
-    n = _count_scheme_lines(text)
-    if n == 0:
+    lines = _scheme_lines(text)
+    if not lines:
         decoded = safe_b64decode(text)
         if decoded:
-            n = _count_scheme_lines(decoded)
-    return n
+            lines = _scheme_lines(decoded)
+    return len({_config_identity_key(line) for line in lines})
 
 def extract_flags(text):
     """استخراج تمامی پرچم‌های کشورها و مناطق موجود در متن"""
