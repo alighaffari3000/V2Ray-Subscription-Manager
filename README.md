@@ -59,6 +59,38 @@ When it finishes you get your panel URL (`https://yourdomain.com/adminpanel`) an
 - A domain pointing to the server (needed for SSL) / یک دامنه که به سرور اشاره کند (برای SSL لازم است)
 - RAM: any size is fine when the prebuilt engine binary downloads successfully (the normal case). **2 GB+ (or swap) is only needed if the installer has to compile the engine from source** — e.g. non-x86_64 servers or very old distros. / رم: اگر باینری از پیش‌ساخته‌ی موتور دانلود شود (حالت عادی) هر مقداری کافی است. **حداقل ۲ گیگ رم (یا swap) فقط وقتی لازم است که نصاب مجبور به کامپایل از سورس شود** — مثلاً سرورهای غیر x86_64 یا توزیع‌های خیلی قدیمی.
 
+### Updating / به‌روزرسانی
+
+Re-run the same install command. It detects the existing installation and updates the code, dependencies, and engine in place — your domain, port, SSL certificate, admin login, and database are all kept.
+
+همان دستور نصب را دوباره اجرا کنید. نصب موجود را تشخیص می‌دهد و کد، پیش‌نیازها و موتور را به‌روز می‌کند — دامنه، پورت، گواهی SSL، ورود ادمین و دیتابیس دست‌نخورده می‌مانند.
+
+---
+
+## 🗑️ Uninstall / حذف
+
+To remove the panel from a server — one line, same style as the install:
+
+برای حذف کامل پنل از سرور — یک خط، با همان سبک نصب:
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/alighaffari3000/V2Ray-Subscription-Manager/master/v2raysub/uninstall.sh)
+```
+
+It asks for confirmation, then removes the systemd service, the project directory (`/home/v2ray-sub`), the nginx vhost and rate-limit zone, the nginx logs, the journald cap, and the scan engine binary.
+
+تأیید می‌گیرد، سپس سرویس systemd، پوشه‌ی پروژه (`/home/v2ray-sub`)، تنظیمات nginx، لاگ‌ها و باینری موتور اسکن را حذف می‌کند.
+
+**Your database and `.env` are copied to `/root/v2ray-sub-data-<date>.tar.gz` before anything is deleted** — if that copy fails, nothing is removed at all. Shared packages (nginx, redis, certbot, python3) are always kept, since other services on the server may need them; so is the SSL certificate, because re-issuing counts against Let's Encrypt's rate limits.
+
+**دیتابیس و فایل `.env` قبل از هر حذفی در `/root/v2ray-sub-data-<تاریخ>.tar.gz` ذخیره می‌شوند** — اگر این کپی شکست بخورد، هیچ‌چیز حذف نمی‌شود. پکیج‌های مشترک (nginx، redis، certbot، python3) و گواهی SSL همیشه نگه داشته می‌شوند.
+
+| Option | Effect / اثر |
+|---|---|
+| `--yes` | Skip the confirmation prompt (for scripts) / بدون پرسش تأیید |
+| `--purge` | Delete the database too, with no backup copy / دیتابیس هم بدون هیچ نسخه‌ی پشتیبانی حذف شود |
+| `--delete-cert` | Also delete the Let's Encrypt certificate / گواهی SSL هم حذف شود |
+
 ---
 
 ## 🏗️ How it's built / معماری
@@ -69,7 +101,8 @@ When it finishes you get your panel URL (`https://yourdomain.com/adminpanel`) an
 │   ├── routes/        # HTTP endpoints (client subscription + admin panel/API)
 │   ├── services/      # Business logic (automation, configs, paths, stats)
 │   ├── utils/         # Parsers and helpers
-│   └── install.sh     # The automated installer / اسکریپت نصب خودکار
+│   ├── install.sh     # The automated installer / اسکریپت نصب خودکار
+│   └── uninstall.sh   # Removes everything the installer created / حذف کامل از سرور
 │
 └── V2RayDAR-main/     # Vendored Rust scan engine (third-party, see Credits)
                        # موتور اسکن Rust (پروژه‌ی جانبی — بخش Credits را ببینید)

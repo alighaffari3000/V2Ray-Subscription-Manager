@@ -12,6 +12,36 @@
 
 ## [Unreleased]
 
+## [1.22.0] - 2026-07-27
+
+### Added
+- **اسکریپت حذف (`uninstall.sh`).** تا حالا هیچ راهی برای پاک‌کردن پنل از سرور
+  جز حذف دستی تک‌تک فایل‌ها و سرویس‌ها نبود. حالا با همان سبک یک‌خطیِ نصب:
+
+  ```bash
+  bash <(curl -Ls https://raw.githubusercontent.com/alighaffari3000/V2Ray-Subscription-Manager/master/v2raysub/uninstall.sh)
+  ```
+
+  سرویس systemd، پوشه‌ی پروژه، vhost و zone محدودیت نرخ nginx، لاگ‌های nginx،
+  تنظیم journald و باینری موتور اسکن را حذف می‌کند.
+
+  تصمیم‌های اصلی‌اش:
+  - **دیتابیس و `.env` قبل از هر حذفی در `/root/v2ray-sub-data-<تاریخ>.tar.gz`
+    ذخیره می‌شوند** و اگر این کپی شکست بخورد هیچ‌چیز حذف نمی‌شود. با `--purge`
+    می‌شود بدون پشتیبان‌گیری پاک کرد. پوشه‌ی `storage/` (آرشیو بکاپ‌ها) در
+    نسخه‌ی پشتیبان نمی‌آید: می‌تواند صدها مگابایت باشد و پرکردن دیسک وسط یک
+    uninstall راه بدی برای از‌دست‌دادن سرور است.
+  - **پکیج‌های مشترک هرگز حذف نمی‌شوند** (nginx، redis، certbot، python3) —
+    ممکن است سرویس‌های دیگر سرور به آن‌ها وابسته باشند.
+  - **گواهی SSL به‌صورت پیش‌فرض می‌ماند**، چون صدور دوباره‌اش در سهمیه‌ی
+    Let's Encrypt حساب می‌شود؛ با `--delete-cert` حذف می‌شود.
+  - سایت پیش‌فرض nginx که نصاب حذفش می‌کند دوباره برگردانده می‌شود، وگرنه سرور
+    با یک پورت ۸۰ خالی باقی می‌ماند.
+  - symlink مربوط به sing-box فقط وقتی حذف می‌شود که واقعاً symlink باشد — اگر
+    کسی بعداً یک باینری واقعی آنجا گذاشته باشد، مال ما نیست که پاکش کنیم.
+  - برخلاف نصاب، `set -e` ندارد: uninstall ای که وسط کار متوقف شود بدتر از
+    uninstall ای است که خطای یک مرحله را گزارش کند و ادامه دهد.
+
 ## [1.21.0] - 2026-07-27
 
 ### Added
@@ -536,7 +566,8 @@
 - نمایش نسخه در پایان نصب/آپدیت: «Version X.Y.Z installed/updated successfully».
 - مدیریت کاربران (user-management) و محدودیت تعداد دستگاه (device-limit).
 
-[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.21.0...HEAD
+[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.22.0...HEAD
+[1.22.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.21.0...v1.22.0
 [1.21.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.20.0...v1.21.0
 [1.20.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.19.0...v1.20.0
 [1.19.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.18.0...v1.19.0
