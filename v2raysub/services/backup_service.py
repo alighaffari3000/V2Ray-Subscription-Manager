@@ -36,8 +36,20 @@ SENSITIVE_SETTING_KEYS = {
 # from RUNTIME_DATA_MANIFEST. A restored file whose target is outside these is
 # refused, so a malicious archive cannot overwrite application code (app.py,
 # services/*.py, ...) or plant files elsewhere.
-RESTORE_ALLOWED_EXACT = {'database.db', '.env'}
+RESTORE_ALLOWED_EXACT = {'.env'}
 RESTORE_ALLOWED_PREFIXES = ('templates/', 'static/', 'storage/')
+
+# The raw SQLite file is carried inside the archive (as a manual-recovery
+# artifact) but is NEVER written back to disk. Restoring it would copy a file
+# over the live database while restore_backup holds an open connection with an
+# in-flight transaction — the following commit then lands on a file that was
+# swapped underneath it, which corrupts the database ("malformed database
+# schema") and, when the archive comes from an older install, silently reverts
+# the schema past its migrations. Every row is already restored from
+# database.json against the live schema, so the file copy was pure downside.
+# Listed separately from the allowlist so it is skipped quietly instead of being
+# counted as a suspicious out-of-bounds path.
+RESTORE_SILENTLY_SKIPPED = {'database.db', 'database.db-wal', 'database.db-shm'}
 
 # Files that can influence rendering or execution (Jinja templates, static
 # assets, environment). These are restored ONLY from an authentic backup — one
@@ -302,6 +314,15 @@ class BackupService:
             checksums = {"database.json": db_checksum}
 
             # 5. Export files dynamically based on runtime data manifest
+            # Flush the WAL into the main DB file first. The connection runs in
+            # journal_mode=WAL, so recent commits live in database.db-wal, which
+            # the archive does not carry — without this checkpoint the copied
+            # database.db is a stale, half-written snapshot.
+            try:
+                db_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            except Exception:
+                pass
+
             file_count = 0
             for cat, cfg in RUNTIME_DATA_MANIFEST.items():
                 if cfg.get("sensitive") and backup_type != 'full_dr':
@@ -959,6 +980,12 @@ class BackupService:
                         if rel_norm == ".env" and not restore_env:
                             continue
 
+                        # Never write the raw SQLite file back (see
+                        # RESTORE_SILENTLY_SKIPPED) — the DB is restored from
+                        # database.json inside the open transaction above.
+                        if rel_norm in RESTORE_SILENTLY_SKIPPED:
+                            continue
+
                         # Allowlist: only known data locations may be written back,
                         # so a malicious archive can't overwrite application code.
                         allowed = (
@@ -1071,7 +1098,16 @@ class BackupService:
                     for file in files:
                         src_file = os.path.join(root, file)
                         rel_file = os.path.relpath(src_file, files_dir)
-                        if rel_file == ".env" and not restore_env:
+                        rel_norm = rel_file.replace('\\', '/')
+                        if rel_norm == ".env" and not restore_env:
+                            continue
+                        # Same rule as restore: the raw SQLite file is never
+                        # copied back. This path runs while restore_backup's
+                        # connection is still open and about to write a failure
+                        # row to backup_logs, so overwriting the file here would
+                        # corrupt the very database the rollback is rescuing.
+                        # The DB is rolled back by the transaction, not by files.
+                        if rel_norm in RESTORE_SILENTLY_SKIPPED:
                             continue
                         dest_file = os.path.join(constants.BASE_DIR, rel_file)
                         os.makedirs(os.path.dirname(dest_file), exist_ok=True)

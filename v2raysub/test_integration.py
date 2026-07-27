@@ -1081,6 +1081,55 @@ class TestBackupRestore(IntegrationTestBase):
         self.assertIn("backupuserpath1", paths_after)
         self.assertNotIn("newuserpath1", paths_after)
 
+    def test_restore_never_overwrites_the_live_database_file(self):
+        """The archive carries a raw database.db snapshot, but restore must not
+        copy it back: it would land on the live file while the restore
+        transaction is still open, corrupting the database ("malformed database
+        schema") and reverting the schema when the archive is from an older
+        install. Rows come from database.json instead.
+
+        Asserted by watching every file the restore writes: none of them may be
+        the on-disk database."""
+        import io
+        import shutil
+        import zipfile
+        from unittest.mock import patch
+        import utils.constants as constants
+
+        self._login()
+        self._add_config()
+
+        resp_create = self.client.post('/adminpanel/api/backup/create', data={'backup_type': 'standard'})
+        filename = json.loads(resp_create.data)['filename']
+        zip_bytes = self.client.get(f'/adminpanel/api/backup/download/{filename}').data
+
+        # The archive really does carry the raw DB file — otherwise this test
+        # would pass for the wrong reason.
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
+            self.assertIn('files/database.db', z.namelist())
+
+        written = []
+        real_copy2 = shutil.copy2
+
+        def recording_copy2(src, dst, *a, **kw):
+            written.append(os.path.abspath(dst))
+            return real_copy2(src, dst, *a, **kw)
+
+        with patch('services.backup_service.shutil.copy2', side_effect=recording_copy2):
+            resp_res = self.client.post(
+                '/adminpanel/api/backup/restore',
+                data={'backup_file': (io.BytesIO(zip_bytes), filename), 'restore_env': 'false'},
+                content_type='multipart/form-data')
+        self.assertTrue(json.loads(resp_res.data)['success'])
+
+        forbidden = os.path.abspath(os.path.join(constants.BASE_DIR, 'database.db'))
+        self.assertNotIn(forbidden, written,
+                         "restore copied the archived database.db over the live database file")
+
+        from database import db_session
+        with db_session() as db:
+            self.assertEqual(db.execute("PRAGMA integrity_check").fetchone()[0], 'ok')
+
     def test_backup_encryption_full_dr(self):
         self._login()
         self._add_user("Secret User", 90, path="secretpath99")

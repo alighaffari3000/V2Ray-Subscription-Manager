@@ -12,6 +12,28 @@
 
 ## [Unreleased]
 
+## [1.22.1] - 2026-07-27
+
+### Fixed
+- **بازیابی بکاپ دیتابیس را خراب می‌کرد.** فایل خام `database.db` هم داخل آرشیو
+  بود و هم در فهرست فایل‌های مجاز برای بازنویسی؛ در نتیجه `restore_backup` وسط
+  تراکنشِ باز خودش، این فایل را روی دیتابیسِ زنده کپی می‌کرد و `commit()` بعدی
+  روی فایلی می‌نشست که زیر پای connection عوض شده بود. نتیجه:
+  `sqlite3.DatabaseError: malformed database schema` روی هر درخواست — یعنی پنل
+  بعد از هر restore با «Internal Server Error» بالا می‌آمد. اگر آرشیو از نصب
+  قدیمی‌تری می‌آمد، همین کپی schema را هم به عقب برمی‌گرداند و مهاجرت‌های اجراشده
+  را دور می‌زد.
+
+  حالا فایل خام هرگز روی دیسک نوشته نمی‌شود؛ همه‌ی رکوردها مثل قبل از
+  `database.json` و روی schema فعلی بازیابی می‌شوند. همین محافظ به مسیر بازگردانی
+  اضطراری (`_rollback_files`) هم اضافه شد که اصلاً allowlist نداشت و دقیقاً همان
+  دیتابیسی را خراب می‌کرد که قرار بود نجاتش دهد.
+- **`database.db` داخل بکاپ ناقص گرفته می‌شد.** اتصال با `journal_mode=WAL` کار
+  می‌کند و آرشیو فایل `database.db-wal` را همراه ندارد، پس کامیت‌های اخیر در
+  کپی نمی‌آمدند. حالا قبل از کپی‌کردن فایل‌ها یک
+  `PRAGMA wal_checkpoint(TRUNCATE)` اجرا می‌شود تا نسخه‌ی داخل آرشیو (که برای
+  بازیابی دستی نگه داشته می‌شود) کامل و سازگار باشد.
+
 ## [1.22.0] - 2026-07-27
 
 ### Added
@@ -566,7 +588,8 @@
 - نمایش نسخه در پایان نصب/آپدیت: «Version X.Y.Z installed/updated successfully».
 - مدیریت کاربران (user-management) و محدودیت تعداد دستگاه (device-limit).
 
-[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.22.0...HEAD
+[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.22.1...HEAD
+[1.22.1]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.22.0...v1.22.1
 [1.22.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.21.0...v1.22.0
 [1.21.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.20.0...v1.21.0
 [1.20.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.19.0...v1.20.0
