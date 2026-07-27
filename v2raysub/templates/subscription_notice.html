@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    {# A subscription link is private. Keep it out of search indexes and out of
+       the Referer header if the user taps an app link from this page. #}
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="referrer" content="no-referrer">
+    <title>لینک اشتراک</title>
+    <style>
+        /* No web fonts: this page is served to users whose connection to
+           external CDNs is exactly what the subscription is meant to fix. */
+        :root {
+            --bg: #f4f6f8;
+            --card: #ffffff;
+            --text: #1f2933;
+            --muted: #6b7785;
+            --border: #dfe3e8;
+            --accent: #2d7ff9;
+            --accent-text: #ffffff;
+            --code-bg: #f0f2f5;
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #14171c;
+                --card: #1d2127;
+                --text: #e8eaed;
+                --muted: #9aa4b0;
+                --border: #2c313a;
+                --accent: #4c8dff;
+                --accent-text: #ffffff;
+                --code-bg: #14171c;
+            }
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            padding: 24px 16px;
+            background: var(--bg);
+            color: var(--text);
+            font-family: Vazirmatn, Vazir, 'Segoe UI', Tahoma, sans-serif;
+            font-size: 15px;
+            line-height: 1.9;
+            display: flex;
+            justify-content: center;
+        }
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 26px 22px;
+            max-width: 480px;
+            width: 100%;
+        }
+        h1 { font-size: 19px; margin: 0 0 6px; }
+        .lead { color: var(--muted); margin: 0 0 22px; font-size: 14px; }
+        .link-box {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 12px 14px;
+            margin-bottom: 12px;
+            font-family: Consolas, Menlo, monospace;
+            font-size: 13px;
+            direction: ltr;
+            text-align: left;
+            /* The link is long and unbreakable; wrap it instead of letting it
+               push the card into a horizontal scroll on a phone. */
+            word-break: break-all;
+        }
+        button {
+            width: 100%;
+            padding: 13px;
+            border: none;
+            border-radius: 10px;
+            background: var(--accent);
+            color: var(--accent-text);
+            font-family: inherit;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        button:active { opacity: .85; }
+        h2 { font-size: 15px; margin: 26px 0 8px; }
+        ol { margin: 0; padding-inline-start: 20px; color: var(--muted); font-size: 14px; }
+        li { margin-bottom: 5px; }
+        .apps { color: var(--muted); font-size: 13px; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>این لینک را در مرورگر باز نکنید</h1>
+        <p class="lead">
+            این یک لینک اشتراک است، نه یک صفحه‌ی وب. باید آن را در برنامه‌ی
+            کلاینت خود وارد کنید.
+        </p>
+
+        <div class="link-box" id="sub-url">{{ sub_url }}</div>
+        <button type="button" id="copy-btn">کپی کردن لینک</button>
+
+        <h2>مراحل</h2>
+        <ol>
+            <li>روی دکمه‌ی بالا بزنید تا لینک کپی شود.</li>
+            <li>برنامه‌ی کلاینت خود را باز کنید.</li>
+            <li>گزینه‌ی افزودن اشتراک (Add subscription / از کلیپ‌بورد) را بزنید.</li>
+            <li>لینک را ذخیره و کانفیگ‌ها را به‌روزرسانی کنید.</li>
+        </ol>
+
+        <p class="apps">
+            <strong>برنامه‌ی پیشنهادی: Hiddify</strong> — روی اندروید، آیفون و ویندوز.<br>
+            سایر گزینه‌ها: v2rayNG، NekoBox (اندروید) — Streisand، Shadowrocket
+            (آیفون) — v2rayN (ویندوز).
+        </p>
+    </div>
+
+    <script>
+        (function () {
+            var btn = document.getElementById('copy-btn');
+            var url = document.getElementById('sub-url').textContent.trim();
+            btn.addEventListener('click', function () {
+                function done() {
+                    btn.textContent = 'کپی شد ✓';
+                    setTimeout(function () { btn.textContent = 'کپی کردن لینک'; }, 2000);
+                }
+                // navigator.clipboard needs a secure context; an install still on
+                // plain http (or an in-app browser that withholds it) falls back
+                // to the legacy path rather than silently doing nothing.
+                if (navigator.clipboard && window.isSecureContext) {
+                    navigator.clipboard.writeText(url).then(done, legacy);
+                } else {
+                    legacy();
+                }
+                function legacy() {
+                    var ta = document.createElement('textarea');
+                    ta.value = url;
+                    ta.setAttribute('readonly', '');
+                    ta.style.position = 'fixed';
+                    ta.style.opacity = '0';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    try { document.execCommand('copy'); done(); }
+                    catch (e) { btn.textContent = 'لینک را دستی کپی کنید'; }
+                    document.body.removeChild(ta);
+                }
+            });
+        })();
+    </script>
+</body>
+</html>

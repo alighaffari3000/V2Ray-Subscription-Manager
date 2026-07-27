@@ -17,7 +17,8 @@ STATUS_EXPIRED = 'EXPIRED'
 STATUS_USER_DISABLED = 'USER_DISABLED'
 STATUS_USER_PAUSED = 'USER_PAUSED'
 STATUS_DEVICE_LIMIT = 'DEVICE_LIMIT'  # device cap reached — served the dummy config
-STATUS_BOT_BLOCKED = 'BOT_BLOCKED'  # preview-crawler/bot UA — served a neutral placeholder, no config
+STATUS_BOT_BLOCKED = 'BOT_BLOCKED'  # preview-crawler/bot UA — neutral placeholder, no config, no device slot
+STATUS_BROWSER_VIEW = 'BROWSER_VIEW'  # opened in a web browser — "import me into an app" page, no config, no device slot
 
 # Device fingerprint network granularity: collapse each IP to its network block
 # so one device on a churning mobile IP stays a single device (see utils/misc.py).

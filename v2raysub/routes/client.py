@@ -3,7 +3,7 @@
 
 from base64 import b64encode
 
-from flask import Blueprint, request, Response
+from flask import Blueprint, request, Response, render_template
 
 from database import get_setting
 from extensions import limiter
@@ -16,8 +16,9 @@ from services.statistics_service import log_subscription_access
 from utils.constants import (
     STATUS_SUCCESS, STATUS_NOT_FOUND,
     STATUS_EXPIRED, STATUS_USER_DISABLED, STATUS_USER_PAUSED, STATUS_DEVICE_LIMIT,
-    STATUS_BOT_BLOCKED,
+    STATUS_BOT_BLOCKED, STATUS_BROWSER_VIEW,
 )
+from utils.misc import get_public_base_url
 
 client_bp = Blueprint('client', __name__)
 
@@ -61,6 +62,15 @@ def subscription(sub_path):
     if outcome == 'bot':
         log_subscription_access(ip, ua, STATUS_BOT_BLOCKED, sub_path)
         return _text(BOT_PLACEHOLDER_MESSAGE)
+    if outcome == 'browser':
+        # A real person tapped their own link. Show them how to use it instead
+        # of a wall of base64 — but never the config itself, since a spoofed
+        # browser User-Agent would then walk straight past the device cap.
+        log_subscription_access(ip, ua, STATUS_BROWSER_VIEW, sub_path)
+        return Response(
+            render_template('subscription_notice.html',
+                            sub_url=f"{get_public_base_url(request)}sub/{sub_path}"),
+            status=200, content_type='text/html; charset=utf-8')
     # outcome == 'serve'
     log_subscription_access(ip, ua, STATUS_SUCCESS, sub_path)
     resp = _text(generate_subscription_content(_user))

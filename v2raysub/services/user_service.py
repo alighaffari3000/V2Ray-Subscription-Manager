@@ -23,6 +23,7 @@ from utils.constants import (
     USER_STATUS_ACTIVE, USER_STATUS_PAUSED, USER_STATUS_DISABLED, USER_STATUS_EXPIRED,
 )
 from utils.misc import device_fingerprint
+from utils.user_agent import parse_user_agent
 
 _TS_FMT = '%Y-%m-%d %H:%M:%S'
 
@@ -588,6 +589,30 @@ def is_bot_user_agent(user_agent):
     return any(marker in ua for marker in _BOT_UA_MARKERS)
 
 
+def is_browser_user_agent(user_agent):
+    """True if the User-Agent is a plain web browser rather than a VPN client.
+
+    Browsers are not devices. The usual first thing a user does with a fresh
+    link is tap it — Telegram's preview bot fetches it, then the in-app browser
+    opens it — before ever importing it into a VPN app. Letting that browser hit
+    register a device burned a slot before the real client had asked for
+    anything, so the first genuine import already read as "2 of 3".
+
+    Detection is delegated to ``parse_user_agent`` (the single source of truth
+    for UA classification) rather than a second substring list: it reports
+    'Browser/Bot' only after every known client has failed to match, so a real
+    client whose UA happens to embed a browser token — Mozilla/5.0 is a common
+    prefix — is never misclassified as a browser here.
+
+    Bots must be checked first (``is_bot_user_agent``): 'Browser/Bot' is one
+    bucket in ``parse_user_agent``, so a crawler lands here too, and the two get
+    different responses.
+    """
+    if not user_agent:
+        return False
+    return parse_user_agent(user_agent) == 'Browser/Bot'
+
+
 def _allow_device(db, user, ip, user_agent):
     """Enforce the per-user device cap using a rolling-window of fingerprints.
 
@@ -599,10 +624,11 @@ def _allow_device(db, user, ip, user_agent):
     device is always refreshed and allowed; a brand-new device is allowed only
     while free slots remain, otherwise rejected (caller serves the dummy config).
 
-    Callers must route preview crawlers/bots (``is_bot_user_agent``) to a
-    separate neutral response before reaching this function — they're never
-    registered as a device, but they must not receive the real config either,
-    since a spoofed bot-like User-Agent would otherwise bypass the cap entirely.
+    Callers must route non-clients — preview crawlers (``is_bot_user_agent``)
+    and plain browsers (``is_browser_user_agent``) — to their own responses
+    before reaching this function. They're never registered as a device, but
+    they must not receive the real config either, since a spoofed bot-like or
+    browser-like User-Agent would otherwise bypass the cap entirely.
 
     Returns True to serve the real list, False to serve the device-limit dummy.
     Fails open (True) on unlimited caps, missing IPs, or any unexpected error.
@@ -674,7 +700,10 @@ def resolve_user_request(sub_path, ip=None, user_agent=None):
         ('paused', user)      -> serve the dummy "expired/paused" config
         ('expired', user)     -> serve the dummy config
         ('device_limit', user) -> serve the device-limit dummy config
-        ('bot', user)         -> serve a neutral placeholder, no config
+        ('bot', user)         -> crawler: neutral placeholder, no config,
+                                 no device slot
+        ('browser', user)     -> web browser: the "import me into an app" page,
+                                 no config, no device slot
         ('serve', user)       -> serve the real global config list
 
     Side effects: atomic activation-on-first-use, and last_seen/last_ip/
@@ -720,12 +749,16 @@ def resolve_user_request(sub_path, ip=None, user_agent=None):
         if expire is not None and expire < _utcnow():
             return ('expired', user)
 
-        # Link-preview crawlers (Telegram/WhatsApp/etc. fetching a shared link)
-        # are served a neutral placeholder — never the real config, and never
-        # counted as a device. Without this, spoofing a bot-like User-Agent
-        # would bypass the device cap entirely.
+        # Non-clients are never counted as a device and never get the real
+        # config — without withholding it, spoofing a bot-like or browser-like
+        # User-Agent would bypass the device cap entirely. The two kinds get
+        # different responses: a crawler gets a generic placeholder (a messenger
+        # may surface it as the link's preview snippet), while a browser is a
+        # real person who needs to be told what to do with the link.
         if is_bot_user_agent(user_agent):
             return ('bot', user)
+        if is_browser_user_agent(user_agent):
+            return ('browser', user)
 
         # Device cap: register/refresh this device, block only a *new* device
         # once the rolling-window slots are full. Known devices are never blocked.

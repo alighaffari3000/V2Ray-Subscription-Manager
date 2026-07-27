@@ -734,6 +734,13 @@ class TestDeviceLimit(IntegrationTestBase):
     def _is_bot_placeholder(self, resp):
         return resp.data.decode('utf-8') == 'Content not available'
 
+    def _is_browser_notice(self, resp):
+        """The human-facing "import this into an app" page — and, just as
+        importantly, no config anywhere in it."""
+        body = resp.data.decode('utf-8')
+        return ('این لینک را در مرورگر باز نکنید' in body
+                and 'vmess://' not in body)
+
     def _get_user(self, user_id):
         users = json.loads(self.client.get('/adminpanel/api/users').data)
         return next((u for u in users if u['id'] == user_id), None)
@@ -804,6 +811,71 @@ class TestDeviceLimit(IntegrationTestBase):
             'devbot000001', ip='65.108.154.95', ua='v2rayNG/2.2.5')))
         # Exactly one device (the real client) is registered.
         self.assertEqual(self._get_user(uid)['active_device_count'], 1)
+
+    def test_browser_visit_does_not_consume_a_device_slot(self):
+        """Tapping your own link opens it in a browser before it's ever imported
+        into a VPN app. That visit must not burn a device slot — otherwise the
+        very first real client already reads as the *second* device."""
+        self._login()
+        self._seed_config()
+        uid = self._add_user('A', 30, path='devbrowser01', max_devices=3)['user']['id']
+        chrome = ('Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 '
+                  '(KHTML, like Gecko) Chrome/111.0.0.0 Mobile Safari/537.36')
+        # Telegram previews the link, then the in-app browser opens it — from a
+        # different network than the client will later use (IPv6 vs IPv4, CGNAT).
+        self.assertTrue(self._is_bot_placeholder(self._fetch(
+            'devbrowser01', ip='149.154.161.251', ua='TelegramBot (like TwitterBot)')))
+        self.assertTrue(self._is_browser_notice(self._fetch(
+            'devbrowser01', ip='5.201.130.7', ua=chrome)))
+        self.assertEqual(self._get_user(uid)['active_device_count'], 0)
+        # Only the real client registers — the user sees 1 of 3, not 2 of 3.
+        self.assertTrue(self._is_real(self._fetch(
+            'devbrowser01', ip='188.212.10.4', ua='HiddifyNext/1.1.1 (android) like ClashMeta v2ray sing-box')))
+        self.assertEqual(self._get_user(uid)['active_device_count'], 1)
+
+    def test_client_ua_with_browser_prefix_still_counts_as_a_device(self):
+        """Some clients prefix a full browser UA. Known-client detection wins, so
+        they must still register a device rather than be waved through."""
+        self._login()
+        self._seed_config()
+        uid = self._add_user('A', 30, path='devuaprefix1', max_devices=2)['user']['id']
+        self.assertTrue(self._is_real(self._fetch(
+            'devuaprefix1', ip='3.3.3.3',
+            ua='Mozilla/5.0 (Windows NT 10.0; Win64; x64) v2rayN/6.23')))
+        self.assertEqual(self._get_user(uid)['active_device_count'], 1)
+
+    def test_spoofed_browser_ua_cannot_bypass_device_cap(self):
+        """A browser UA withholds the config for the same reason a bot UA does —
+        otherwise the cap is one spoofed header away from meaningless."""
+        self._login()
+        self._seed_config()
+        self._add_user('A', 30, path='devbrowser02', max_devices=1)
+        self.assertTrue(self._is_real(self._fetch(
+            'devbrowser02', ip='1.1.1.1', ua='v2rayNG/2.2.5')))
+        resp = self._fetch('devbrowser02', ip='2.2.2.2',
+                           ua='Mozilla/5.0 (X11; Linux x86_64) Firefox/126.0')
+        self.assertTrue(self._is_browser_notice(resp))
+
+    def test_browser_notice_shows_the_subscription_link(self):
+        """The page is useless without the link it tells you to import, and the
+        link must be the customer-facing one, not whatever host was requested."""
+        self._login()
+        self._seed_config()
+        self._add_user('A', 30, path='devbrowser03', max_devices=2)
+        from database import set_setting
+        set_setting('public_base_url', 'https://vpn.example.com')
+        resp = self._fetch('devbrowser03', ip='4.4.4.4',
+                           ua='Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Safari/605.1')
+        self.assertIn('https://vpn.example.com/sub/devbrowser03', resp.data.decode('utf-8'))
+
+    def test_browser_visit_is_logged_as_browser_view(self):
+        self._login()
+        self._seed_config()
+        uid = self._add_user('A', 30, path='devbrowser04', max_devices=2)['user']['id']
+        self._fetch('devbrowser04', ip='4.4.4.4',
+                    ua='Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36')
+        hist = json.loads(self.client.get('/adminpanel/api/users/%d/history' % uid).data)
+        self.assertTrue(any(h['status'] == 'BROWSER_VIEW' for h in hist['history']))
 
     def test_spoofed_bot_ua_cannot_bypass_device_cap(self):
         self._login()
