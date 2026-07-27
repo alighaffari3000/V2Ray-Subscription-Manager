@@ -64,7 +64,7 @@ DEFAULT_SORT_ORDER = 'asc'
 
 # Valid choices
 VALID_OUTPUT_FORMATS = {'base64', 'plain'}
-VALID_SORT_ORDERS = {'asc', 'desc'}
+VALID_SORT_ORDERS = {'asc', 'desc', 'ping'}
 DAYS_MAP = {'7d': 7, '30d': 30, '90d': 90}
 
 # Default subscription path

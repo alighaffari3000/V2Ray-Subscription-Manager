@@ -40,19 +40,33 @@ def renumber_configs():
     finally:
         db.close()
 
+# ORDER BY clause for each display mode, keyed by the `config_sort_order`
+# setting. 'ping' ignores sort_order/created_at entirely and ranks by measured
+# latency instead; "(latency IS NULL)" sorts to 0/1 in SQLite, so unmeasured
+# configs (never health-checked, or a manual add that hasn't been probed yet)
+# always land after every measured one regardless of how small NULL would
+# otherwise sort as a value.
+_CONFIG_ORDER_SQL = {
+    'desc': 'sort_order DESC, created_at DESC',
+    'ping': '(latency IS NULL) ASC, latency ASC, sort_order ASC, created_at ASC',
+}
+_DEFAULT_ORDER_SQL = 'sort_order ASC, created_at ASC'
+
+
 def get_all_configs():
     """Get all active and enabled configs for the subscription output."""
     sort_dir = get_setting('config_sort_order', 'asc').lower()
-    order_sql = 'DESC' if sort_dir == 'desc' else 'ASC'
+    order_by = _CONFIG_ORDER_SQL.get(sort_dir, _DEFAULT_ORDER_SQL)
     with db_session() as db:
         try:
             configs = db.execute(
                 f'SELECT * FROM configs WHERE status = "active" AND is_enabled = 1 '
-                f'ORDER BY sort_order {order_sql}, created_at {order_sql}'
+                f'ORDER BY {order_by}'
             ).fetchall()
         except Exception as e:
             print(f"Error in get_all_configs: {e}")
             try:
+                order_sql = 'DESC' if sort_dir == 'desc' else 'ASC'
                 configs = db.execute(
                     f'SELECT * FROM configs WHERE status = "active" ORDER BY created_at {order_sql}'
                 ).fetchall()
@@ -63,11 +77,11 @@ def get_all_configs():
 def get_all_configs_for_admin():
     """Get all active configs (including disabled) for admin panel display."""
     sort_dir = get_setting('config_sort_order', 'asc').lower()
-    order_sql = 'DESC' if sort_dir == 'desc' else 'ASC'
+    order_by = _CONFIG_ORDER_SQL.get(sort_dir, _DEFAULT_ORDER_SQL)
     with db_session() as db:
         configs_rows = db.execute(
             f'SELECT * FROM configs WHERE status = "active" '
-            f'ORDER BY sort_order {order_sql}, created_at {order_sql}'
+            f'ORDER BY {order_by}'
         ).fetchall()
 
     configs = []

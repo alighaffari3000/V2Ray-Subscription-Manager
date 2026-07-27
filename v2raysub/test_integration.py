@@ -219,6 +219,75 @@ class TestSettings(IntegrationTestBase):
         data = json.loads(resp.data)
         self.assertFalse(data['success'])
 
+    def test_set_sort_order_ping(self):
+        self._login()
+        resp = self.client.post('/adminpanel/set_sort_order', data={'sort_order': 'ping'})
+        data = json.loads(resp.data)
+        self.assertTrue(data['success'])
+
+
+class TestConfigPingSort(IntegrationTestBase):
+    """'ping' display mode: lowest measured latency first, unmeasured configs last."""
+
+    def _add_with_latency(self, config_text, latency=None):
+        """Add one config and (optionally) stamp its latency directly, since
+        latency is normally only written by the (external) scan engine.
+        Returns the new config's id."""
+        resp = self.client.post('/adminpanel/add', data={'config_text': config_text})
+        self.assertTrue(json.loads(resp.data)['success'])
+        from database import get_db
+        db = get_db()
+        config_id = db.execute(
+            'SELECT id FROM configs WHERE config_text = ?', (config_text,)
+        ).fetchone()['id']
+        if latency is not None:
+            db.execute('UPDATE configs SET latency = ? WHERE id = ?', (latency, config_id))
+            db.commit()
+        db.close()
+        return config_id
+
+    def _ordered_ids(self):
+        resp = self.client.get('/adminpanel')
+        # The admin page lists rows in the same order get_all_configs_for_admin
+        # returns them; pull the ids out of the rendered markup in that order.
+        import re
+        return [int(m) for m in re.findall(r'id="config-(\d+)"', resp.data.decode('utf-8'))]
+
+    def test_lowest_latency_first(self):
+        self._login()
+        slow = self._add_with_latency('vmess://eyJhZGQiOiJhLmNvbSIsInBvcnQiOiI0NDMiLCJ2IjoiMiJ9', latency=300)
+        fast = self._add_with_latency('vless://b@c.com:443', latency=20)
+        medium = self._add_with_latency('trojan://p@d.com:443', latency=120)
+        self.client.post('/adminpanel/set_sort_order', data={'sort_order': 'ping'})
+        self.assertEqual(self._ordered_ids(), [fast, medium, slow])
+
+    def test_unmeasured_configs_sort_last(self):
+        """A config never health-checked (latency IS NULL) must not be mistaken
+        for a 0ms winner — it belongs after every measured config."""
+        self._login()
+        never_checked = self._add_with_latency('vmess://eyJhZGQiOiJhLmNvbSIsInBvcnQiOiI0NDMiLCJ2IjoiMiJ9')
+        checked = self._add_with_latency('vless://b@c.com:443', latency=500)
+        self.client.post('/adminpanel/set_sort_order', data={'sort_order': 'ping'})
+        self.assertEqual(self._ordered_ids(), [checked, never_checked])
+
+    def test_subscription_output_also_follows_ping_order(self):
+        """The customer-facing list (not just the admin table) must respect the
+        same ordering — that's the whole point of the setting."""
+        self._login()
+        # Plain (non-base64) URI schemes so the hostname is a literal substring
+        # of the output — a vmess:// URI base64-encodes its host and would not be.
+        self._add_with_latency('trojan://p@a.com:443', latency=300)
+        self._add_with_latency('vless://b@c.com:443', latency=20)
+        self.client.post('/adminpanel/set_sort_order', data={'sort_order': 'ping'})
+        r = json.loads(self.client.post('/adminpanel/api/users',
+                                        data=json.dumps({'name': 'p', 'duration_days': 30, 'path': 'pingsubuser1'}),
+                                        content_type='application/json').data)
+        self.assertTrue(r['success'])
+        import base64
+        resp = self.client.get('/sub/pingsubuser1')
+        body = base64.b64decode(resp.data).decode('utf-8')
+        self.assertLess(body.index('c.com'), body.index('a.com'))
+
 
 class TestSubscription(IntegrationTestBase):
     """Subscription endpoint returns configs for valid paths."""

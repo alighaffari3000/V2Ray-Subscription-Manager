@@ -24,6 +24,7 @@ from services.user_service import (
 from database import get_setting, set_setting
 from utils.misc import get_public_base_url
 from utils.csrf import validate_csrf
+from utils.constants import VALID_SORT_ORDERS
 
 admin_api_bp = Blueprint('admin_api', __name__)
 
@@ -186,7 +187,7 @@ def set_sort_order():
     if err:
         return err
     order = request.form.get('sort_order') or _get_json_safe().get('sort_order') or _get_json_safe().get('order', 'asc')
-    if order not in ('asc', 'desc'):
+    if order not in VALID_SORT_ORDERS:
         return jsonify({'success': False, 'message': 'ترتیب نامعتبر'})
     set_setting('config_sort_order', order)
     return jsonify({'success': True, 'message': f'ترتیب نمایش به {order} تغییر کرد'})

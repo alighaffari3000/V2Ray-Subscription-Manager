@@ -700,6 +700,10 @@
                             <input type="radio" name="sort_order" value="desc" {% if config_sort_order=='desc' %}checked{% endif %} onchange="changeSortOrder('desc')">
                             جدیدترین در ابتدا (اندیس ۱)
                         </label>
+                        <label>
+                            <input type="radio" name="sort_order" value="ping" {% if config_sort_order=='ping' %}checked{% endif %} onchange="changeSortOrder('ping')">
+                            کمترین پینگ در ابتدا (اندیس ۱)
+                        </label>
                     </div>
                 </div>
             </div>
@@ -1272,8 +1276,13 @@ hysteria2://..." required></textarea>
                 </div>
             </div>
 
+            {% if config_sort_order == 'ping' %}
+            <p style="font-size: 12px; color: #666; margin-bottom: 15px;">در حالت «کمترین پینگ در ابتدا» ترتیب خودکار
+                محاسبه می‌شود؛ جابه‌جایی دستی غیرفعال است. برای جابه‌جایی دستی، حالت نمایش را به قدیمی‌ترین/جدیدترین تغییر دهید.</p>
+            {% else %}
             <p style="font-size: 12px; color: #666; margin-bottom: 15px;">برای تغییر ترتیب، روی سطرها کلیک کرده و بکشید
                 (Drag & Drop).</p>
+            {% endif %}
 
             {% if configs %}
             <div class="table-container">
@@ -1291,7 +1300,8 @@ hysteria2://..." required></textarea>
                     <tbody id="configs-table">
                         {% for config in configs %}
                         <tr id="config-{{ config.id }}" data-id="{{ config.id }}" data-text="{{ config.config_text }}"
-                            class="draggable {% if not config.is_enabled %}config-disabled{% endif %}" draggable="true">
+                            class="{% if config_sort_order != 'ping' %}draggable{% endif %} {% if not config.is_enabled %}config-disabled{% endif %}"
+                            draggable="{% if config_sort_order == 'ping' %}false{% else %}true{% endif %}">
                             <td><input type="checkbox" class="config-checkbox" value="{{ config.id }}"
                                     onclick="updateBulkToolbar()"></td>
                             <td>{{ loop.index }}</td>

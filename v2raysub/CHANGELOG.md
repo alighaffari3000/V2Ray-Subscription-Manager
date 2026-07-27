@@ -12,6 +12,24 @@
 
 ## [Unreleased]
 
+## [1.23.0] - 2026-07-28
+
+### Added
+- **ترتیب نمایش «کمترین پینگ در ابتدا».** تا حالا دو گزینه بود: قدیمی‌ترین یا
+  جدیدترین در ابتدا. حالا یک گزینه‌ی سوم هم هست که کانفیگ‌ها را بر اساس
+  `latency` اندازه‌گیری‌شده (همان مقداری که تست سلامت خودکار پر می‌کند) از
+  کم به زیاد می‌چیند — پایین‌ترین پینگ، شماره‌ی ۱. کانفیگ‌هایی که هنوز هیچ
+  تست سلامتی نخورده‌اند (latency خالی) همیشه بعد از همه‌ی کانفیگ‌های
+  اندازه‌گیری‌شده می‌آیند، نه اول لیست — یک NULL در SQLite به‌طور پیش‌فرض قبل
+  از هر عددی می‌نشیند، که اینجا دقیقاً برعکسِ معنای درست بود. هم در پنل ادمین
+  و هم در خروجیِ خودِ لینک اشتراک (شماره‌گذاری‌ای که کلاینت‌ها می‌بینند) اعمال
+  می‌شود.
+
+  چون ترتیب در این حالت خودکار محاسبه می‌شود، جابه‌جاییِ دستیِ سطرها
+  (Drag & Drop) در همین حالت غیرفعال شد — قبلاً هرگونه جابه‌جایی، بی‌صدا مبنای
+  دستیِ asc/desc را هم بازنویسی می‌کرد بدون این‌که در حالت پینگ اثری داشته
+  باشد.
+
 ## [1.22.1] - 2026-07-27
 
 ### Fixed
@@ -588,7 +606,8 @@
 - نمایش نسخه در پایان نصب/آپدیت: «Version X.Y.Z installed/updated successfully».
 - مدیریت کاربران (user-management) و محدودیت تعداد دستگاه (device-limit).
 
-[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.22.1...HEAD
+[Unreleased]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.23.0...HEAD
+[1.23.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.22.1...v1.23.0
 [1.22.1]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.22.0...v1.22.1
 [1.22.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.21.0...v1.22.0
 [1.21.0]: https://github.com/alighaffari3000/V2Ray-Subscription-Manager/compare/v1.20.0...v1.21.0
